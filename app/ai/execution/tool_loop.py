@@ -39,6 +39,33 @@ from app.ai.execution.tools import run_tool_async
 _EMAIL_TOOL_NAMES = frozenset(item["name"] for item in EMAIL_TOOL_DECLARATIONS)
 _GITHUB_TOOL_NAMES = frozenset(item["name"] for item in GITHUB_TOOL_DECLARATIONS)
 
+_SANDBOX_DECLARATION: dict[str, Any] = {
+    "name": "execute_python_snippet",
+    "description": (
+        "Run a short Python snippet and get its output. Use it for arithmetic, date maths and "
+        "small data checks the user asks for. It cannot reach the network or the filesystem."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "code": {"type": "string", "description": "the Python source to run"},
+            "timeout_seconds": {"type": "integer", "description": "seconds, at most 3"},
+        },
+        "required": ["code"],
+    },
+}
+
+
+def _sandbox_offered() -> bool:
+    """Whether the chat may run code at all.
+
+    Default off. The runner bounds CPU, memory and time, but a box that executes user code is
+    a decision an operator makes deliberately, not something a default should make for them.
+    """
+    return os.getenv("INDOONE_CHAT_SANDBOX_ENABLED", "false").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
 # The GitHub reads agent 11 declares, and how the model's argument names map onto its own.
 # Only these three: the supervisor is read-only by design, and every write still goes through
 # the plugin's approval flow.
@@ -204,6 +231,12 @@ def model_tool_declarations(
     # for research was answered from training memory.
     if wanted_names is not None and wants_web:
         wanted_names.add("search_web")
+    # Same shape as search_web: when the operator has enabled it, the tool is offered
+    # without a discovery step, because a model that has to discover the runner usually
+    # answers a code question from memory instead.
+    if wanted_names is not None and _sandbox_offered():
+        wanted_names.add("execute_python_snippet")
+
     if wanted_names is not None and str(user_id or "").strip():
         wanted_names |= _connected_read_tools(str(user_id).strip())
 
@@ -229,6 +262,13 @@ def model_tool_declarations(
 
     if wanted_names is None or "search_web" in wanted_names:
         declarations.append(dict(SEARCH_WEB_DECLARATION))
+
+    # The sandbox is offered to the model only when an operator has turned it on. Running
+    # code is a capability a deployment has to opt into, not a default: the runner is
+    # bounded, but a user who can run code can also probe what the box can reach.
+    if _sandbox_offered() and (wanted_names is None or "execute_python_snippet" in wanted_names):
+        declarations.append(dict(_SANDBOX_DECLARATION))
+
     return declarations
 
 
@@ -277,6 +317,25 @@ async def dispatch_tool(
         return await execute_email_tool(
             user_id, conversation_id, name, arguments, original_message=original_message
         )
+
+    if name == "execute_python_snippet":
+        # Through agent 15: it checks the shape of the code against an AST whitelist, runs it
+        # in a child process with CPU and memory limits, and reports a killed child as a
+        # timeout rather than as a crash.
+        from app.agents import code_sandbox
+
+        sandbox = code_sandbox()
+        outcome = sandbox.validate_and_execute(
+            sandbox.SandboxToolCall("execute_python_snippet", dict(arguments))
+        )
+        envelope = sandbox.envelope(outcome)
+
+        return {
+            "ok": envelope["status"] == "success",
+            "result": envelope["payload"],
+            "code": str(getattr(outcome, "error_code", "") or "") if envelope["status"] != "success" else "",
+            "message": str(getattr(outcome, "error_message", "") or ""),
+        }
 
     route = _GITHUB_SUPERVISOR_ROUTES.get(name)
     if route is not None:
