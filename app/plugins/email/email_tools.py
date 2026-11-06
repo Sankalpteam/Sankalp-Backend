@@ -252,6 +252,43 @@ async def _read_by_id(
     return {"ok": True, "provider": provider, "email": _row_for_model({**row, "body": body}, include_body=True)}
 
 
+_MODEL_TEXT_KEYS = frozenset({"body", "snippet", "text", "preview", "subject", "content"})
+
+
+def _sanitize_for_model(value: Any) -> Any:
+    """Run agent 12's sanitiser over the text an email tool hands the model.
+
+    A mail body is the one payload in this system written by a stranger. It can carry an
+    OTP, a password reset link, a tracking pixel or a one-time token, and the model reads
+    all of it. The supervisor already knows how to strip that; this is the live path
+    asking it to.
+    """
+    if isinstance(value, str):
+        return value
+
+    if isinstance(value, list):
+        return [_sanitize_for_model(item) for item in value]
+
+    if not isinstance(value, dict):
+        return value
+
+    cleaned: dict[str, Any] = {}
+
+    for key, item in value.items():
+        if key in _MODEL_TEXT_KEYS and isinstance(item, str) and item.strip():
+            cleaned[key] = _mail_supervisor().sanitize_mail_body(item)
+        else:
+            cleaned[key] = _sanitize_for_model(item)
+
+    return cleaned
+
+
+def _mail_supervisor() -> Any:
+    from app.agents import mail_supervisor
+
+    return mail_supervisor()
+
+
 async def execute_email_tool(
     user_id: str,
     conversation_id: str,
@@ -717,3 +754,17 @@ async def handle_email_chat_with_tools(
             "Reply CONFIRM to send this exact email, or CANCEL to stop. No email has been sent yet."
         )
     return model_reply
+
+
+# ---------------------------------------------------------------- the live sanitiser
+
+_execute_email_tool_unsanitized = execute_email_tool
+
+
+async def execute_email_tool(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """The dispatcher, with every text field passed through agent 12 first.
+
+    Rebound at the end of the module rather than edited at a dozen return statements, so
+    there is exactly one place a mail result can escape to the model, and it is this one.
+    """
+    return _sanitize_for_model(await _execute_email_tool_unsanitized(*args, **kwargs))

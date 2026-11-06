@@ -207,6 +207,12 @@ def get_tool_declarations() -> list[dict[str, Any]]:
 # ---------------------------------------------------------------- the scrubber
 
 
+# token=, code=, key=, secret=, sig= in a URL: a credential that travels in plain sight.
+_SECRET_QUERY = re.compile(
+    r"(?i)\b(token|code|key|secret|sig|signature|auth|password|otp)=([A-Za-z0-9._~%\-]{6,})"
+)
+
+
 def sanitize_mail_body(raw_body: str) -> str:
     """Strip what must not reach a model from a mail body, then bound it.
 
@@ -220,6 +226,11 @@ def sanitize_mail_body(raw_body: str) -> str:
     body = _TRACKING_PIXEL.sub("", body)
     body = _PRIVATE_KEY.sub(REDACTED, body)
     body = _PASSWORD_LINE.sub(lambda match: f"{match.group(0).split(':')[0].split('=')[0]}: {REDACTED}", body)
+    # A password-reset link is a credential with a longer life than an OTP and the same
+    # consequence: whoever reads it can take the account. It arrives as a query parameter,
+    # which no amount of prose scanning catches.
+    body = _SECRET_QUERY.sub(lambda match: f"{match.group(1)}={REDACTED}", body)
+
     body = _OTP.sub(lambda match: match.group(0).replace(match.group(1), REDACTED_OTP), body)
     body = _BARE_OTP.sub(lambda match: match.group(0).replace(match.group(1), REDACTED_OTP), body)
 
