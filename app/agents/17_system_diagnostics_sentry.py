@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -99,6 +100,7 @@ class HostTelemetry:
     disk_used_pct: float = 0.0
     uptime_seconds: float = 0.0
     commit_sha: str | None = None
+    process_threads: int = 0
     has_warnings: bool = False
     warning_messages: list[str] = field(default_factory=list)
 
@@ -251,6 +253,7 @@ def collect_host_telemetry(
     disk_total, disk_free = _disk(disk_path)
 
     telemetry = HostTelemetry(
+        process_threads=threading.active_count(),
         cpu_load_1m=round(one, 2),
         cpu_load_5m=round(five, 2),
         cpu_load_15m=round(fifteen, 2),
@@ -382,3 +385,34 @@ def validate_and_execute(
         action_chips=_chips(telemetry),
         telemetry_micros=(time.perf_counter() - started) * 1_000_000,
     )
+
+
+# ---------------------------------------------------------------- the envelope
+
+TOOL_NAME = "host_telemetry"
+
+
+def envelope(telemetry: Any) -> dict[str, Any]:
+    """Numbers, not a table.
+
+    Every figure is the operating system's own, and a field the host could not answer stays
+    at zero rather than becoming a sentence about it.
+    """
+    if telemetry is None:
+        return {"tool": TOOL_NAME, "status": "skipped", "payload": {}}
+
+    cores = max(1, int(getattr(telemetry, "cpu_count", 0) or 1))
+    load_1m = float(getattr(telemetry, "cpu_load_1m", 0.0) or 0.0)
+
+    return {
+        "tool": TOOL_NAME,
+        "status": "success",
+        "payload": {
+            "ram_used_pct": round(float(getattr(telemetry, "memory_used_pct", 0.0) or 0.0), 1),
+            "disk_used_pct": round(float(getattr(telemetry, "disk_used_pct", 0.0) or 0.0), 1),
+            # One-minute load normalised by cores: a percentage the reader can compare.
+            "cpu_pct": round(min(100.0, 100.0 * load_1m / cores), 1),
+            "process_threads": int(getattr(telemetry, "process_threads", 0) or 0),
+            "uptime_seconds": round(float(getattr(telemetry, "uptime_seconds", 0.0) or 0.0), 1),
+        },
+    }

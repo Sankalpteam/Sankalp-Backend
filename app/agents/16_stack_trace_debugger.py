@@ -402,3 +402,44 @@ def validate_and_execute(call: DebuggerToolCall, *, language: str = "en") -> Deb
         report=report,
         telemetry_micros=(time.perf_counter() - started) * 1_000_000,
     )
+
+
+# ---------------------------------------------------------------- the envelope
+
+TOOL_NAME = "debugger"
+
+
+def envelope(report: Any) -> dict[str, Any]:
+    """Structural diagnostics only.
+
+    The report carries a sanitized snippet and a deterministic fix, and both are for the
+    model to read. What goes out is the shape of the failure: type, frames, and where it
+    broke - no message, no explanation, no advice.
+    """
+    if report is None or not getattr(report, "is_traceback", False):
+        return {"tool": TOOL_NAME, "status": "skipped", "payload": {}}
+
+    culprit = getattr(report, "culprit_frame", None)
+
+    return {
+        "tool": TOOL_NAME,
+        "status": "success",
+        "payload": {
+            "error_type": str(getattr(report, "exception_type", "") or ""),
+            "runtime": str(getattr(report, "runtime", "") or ""),
+            "traceback_frames": [
+                {
+                    "file": frame.file,
+                    "line": frame.line,
+                    "function": frame.func,
+                    "is_app_frame": frame.is_app_frame,
+                }
+                for frame in getattr(report, "app_frames", [])
+            ],
+            "ast_summary": {
+                "culprit_file": getattr(culprit, "file", "") if culprit else "",
+                "culprit_line": getattr(culprit, "line", 0) if culprit else 0,
+                "frame_count": len(getattr(report, "app_frames", [])),
+            },
+        },
+    }
