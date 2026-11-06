@@ -262,3 +262,29 @@ def get_tool_declarations() -> list[dict[str, Any]]:
         "parameters": {"type": "object", "properties": {}, "required": []},
     }
     return [json.loads(json.dumps(declaration))]
+
+
+# ---------------------------------------------------------------- the envelope
+
+TOOL_NAME = "db_watchdog"
+
+
+def envelope(result: Any) -> dict[str, Any]:
+    """Numbers about the pool. The summary line the watchdog also builds is for the model."""
+    if result is None or not getattr(result, "success", False):
+        return {"tool": TOOL_NAME, "status": "skipped", "payload": {}}
+
+    data = getattr(result, "data", None)
+    saturation = float(getattr(data, "saturation_pct", 0.0) or 0.0)
+    starved = bool(getattr(data, "has_starvation", False))
+
+    return {
+        "tool": TOOL_NAME,
+        "status": "saturated" if starved or saturation >= 95.0 else "healthy",
+        "payload": {
+            "saturation_pct": round(saturation, 1),
+            "active_conns": int(getattr(data, "active_connections", 0) or 0),
+            "hung_queries": len(getattr(data, "hung_queries", []) or []),
+            "starvation": starved,
+        },
+    }

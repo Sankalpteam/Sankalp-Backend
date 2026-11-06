@@ -253,3 +253,34 @@ def prune(now: float | None = None, ttl_seconds: float = SESSION_TTL_SECONDS) ->
         _sessions.pop(identifier, None)
 
     return len(stale)
+
+
+# ---------------------------------------------------------------- the envelope
+
+TOOL_NAME = "quota_guard"
+
+
+def envelope(result: Any, *, session_turns: int = 0) -> dict[str, Any]:
+    """Permission to speak, and how much is left - not a sentence about it.
+
+    This is one of the two agents allowed a direct rejection (doctrine 1.4), and even here the
+    envelope carries the code and the numbers; the wording lives with the message the client
+    renders.
+    """
+    if result is None:
+        return {"tool": TOOL_NAME, "status": "skipped", "payload": {}}
+
+    allowed = bool(getattr(result, "is_allowed", True))
+    limit = getattr(result, "monthly_limit", None)
+    used = int(getattr(result, "current_month_usage", 0) or 0)
+
+    return {
+        "tool": TOOL_NAME,
+        "status": "active" if allowed else "QUOTA_EXHAUSTED",
+        "payload": {
+            "remaining_quota": max(0, int(limit) - used) if limit else -1,
+            "session_turns": int(session_turns),
+            "quota_exhausted": not allowed,
+            "channel": str(getattr(result, "channel", "") or ""),
+        },
+    }
