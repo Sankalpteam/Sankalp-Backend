@@ -246,8 +246,29 @@ def _strip_tracking(url: str) -> str:
 
 
 def _blocked_host(host: str) -> bool:
+    """Whether this host must not appear in a result, not just whether it may be fetched.
+
+    A search result is read by the model and can name an address the model would then ask to
+    fetch. Blocking only at fetch time leaves the address in the prompt, so the same rule runs
+    here - including a literal private IP, which no name-based list would catch.
+    """
     lowered = (host or "").casefold()
-    return any(lowered == blocked or lowered.endswith("." + blocked) for blocked in _BLOCKED_HOSTS)
+
+    if any(lowered == blocked or lowered.endswith("." + blocked) for blocked in _BLOCKED_HOSTS):
+        return True
+
+    try:
+        address = ipaddress.ip_address(lowered.strip("[]"))
+    except ValueError:
+        return False
+
+    return (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_multicast
+    )
 
 
 # ---------------------------------------------------------------- the purifier
