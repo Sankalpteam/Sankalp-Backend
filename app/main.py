@@ -6,7 +6,7 @@ import time
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from app.ai.gateway import service as ai_service
 from app.ai.memory.conversation_store import ConversationStore
@@ -387,6 +387,61 @@ app.include_router(instagram_automation_router, prefix="/api")
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/voice/transcribe")
+async def voice_transcribe(request: Request) -> dict[str, object]:
+    """Audio in, text out - and the text goes through the same chat pipeline as typing.
+
+    Authenticated like every other spending endpoint: speech costs money per second, so it is
+    not public the way a liveness probe is.
+    """
+    from app.voice import gateway
+
+    if not gateway.voice_enabled():
+        raise HTTPException(status_code=503, detail="Voice is switched off on this deployment.")
+
+    form = await request.form()
+    upload = form.get("audio")
+    language = str(form.get("language") or gateway.DEFAULT_LANGUAGE)
+
+    if upload is None or not hasattr(upload, "read"):
+        raise HTTPException(status_code=400, detail="No audio was sent.")
+
+    audio = await upload.read()
+
+    try:
+        result = await gateway.transcribe(
+            audio,
+            language=language,
+            mime_type=str(getattr(upload, "content_type", "") or "audio/wav"),
+        )
+    except gateway.SpeechUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:  # a provider failure is a 502, not a crash
+        raise HTTPException(status_code=502, detail="Speech recognition failed.") from exc
+
+    return {"text": result.text, "language": result.language}
+
+
+@app.post("/voice/speak")
+async def voice_speak(body: dict[str, object]) -> Response:
+    """Text in, audio out. The words are the assistant's own; nothing is added here."""
+    from app.voice import gateway
+
+    if not gateway.voice_enabled():
+        raise HTTPException(status_code=503, detail="Voice is switched off on this deployment.")
+
+    text = str(body.get("text") or "")
+
+    try:
+        result = await gateway.speak(text, language=str(body.get("language") or gateway.DEFAULT_LANGUAGE))
+    except gateway.SpeechUnavailable as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Speech synthesis failed.") from exc
+
+    return Response(content=result.audio, media_type=result.mime_type)
 
 
 @app.get("/health/kingdom")
