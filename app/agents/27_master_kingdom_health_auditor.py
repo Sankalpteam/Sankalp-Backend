@@ -305,3 +305,36 @@ def collect_from_fleet(now_epoch: Optional[float] = None) -> KingdomHealthSnapsh
         ledger_efficiency=float(efficiency),
         now_epoch=now_epoch,
     )
+
+
+# ---------------------------------------------------------------- the envelope
+
+TOOL_NAME = "kingdom_auditor"
+
+_STATUS_WORD = {HEALTHY: "healthy", DEGRADED: "degraded", CRITICAL: "unhealthy"}
+
+
+def envelope(snapshot: Any) -> dict[str, Any]:
+    """The pulse, as counts and words rather than a paragraph.
+
+    The snapshot also carries a summary sentence; it is for a human reading a log, not for a
+    monitor parsing a response, so it stays out.
+    """
+    if snapshot is None:
+        return {"tool": TOOL_NAME, "status": "skipped", "payload": {}}
+
+    subsystems = dict(getattr(snapshot, "subsystems", {}) or {})
+    overall = str(getattr(snapshot, "overall_status", HEALTHY) or HEALTHY)
+
+    return {
+        "tool": TOOL_NAME,
+        "status": _STATUS_WORD.get(overall, "degraded"),
+        "payload": {
+            "pillars_summary": {name: report.status for name, report in subsystems.items()},
+            "active_subsystems": sum(
+                1 for report in subsystems.values() if report.status != UNREACHABLE
+            ),
+            "timestamp": str(getattr(snapshot, "iso_timestamp", "") or ""),
+            "overall_status": overall,
+        },
+    }

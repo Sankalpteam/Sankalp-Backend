@@ -165,6 +165,26 @@ class CircuitBreakerHealer:
 
         return self.get_telemetry(moment)
 
+    def signal_recovery(self, circuit: Any) -> bool:
+        """Tell agent 06 the circuit may close, once the healer has earned it.
+
+        The healer proves the provider is back; the breaker owns the state. This is the one
+        place they meet, and it only fires on ``is_circuit_reset_ready`` - a healer that has
+        not done its three probes has nothing to say.
+        """
+        if not self._reset_ready:
+            return False
+
+        accept = getattr(circuit, "accept_healer_recovery", None)
+
+        if not callable(accept):
+            return False
+
+        accept(self.provider)
+        self.acknowledge_circuit_reset()
+
+        return True
+
     def acknowledge_circuit_reset(self) -> None:
         """Agent 06 has closed the circuit. Back to watching."""
         self._state = IDLE
@@ -214,3 +234,40 @@ def action_chips(telemetry: HealerTelemetry) -> list[dict[str, str]]:
         return [{"label": "Check Provider Health", "action": "check_provider_health"}]
 
     return []
+
+
+# ---------------------------------------------------------------- the envelope
+
+TOOL_NAME = "circuit_healer"
+
+
+def envelope(telemetry: Any, *, probe_sent: bool = False) -> dict[str, Any]:
+    """Recovery state as data.
+
+    The three statuses are the whole story: dormant means the circuit is closed and nothing is
+    being watched, recovering means probes are running, healed means the provider answered
+    three times in a row and the breaker has been told.
+    """
+    if telemetry is None:
+        return {"tool": TOOL_NAME, "status": "dormant", "payload": {}}
+
+    state = str(getattr(telemetry, "state", IDLE) or IDLE)
+
+    if state == RECOVERED:
+        status = "healed"
+    elif state == PROBING_ACTIVE:
+        status = "recovering"
+    else:
+        status = "dormant"
+
+    return {
+        "tool": TOOL_NAME,
+        "status": status,
+        "payload": {
+            "consecutive_successes": int(getattr(telemetry, "consecutive_successes", 0) or 0),
+            "backoff_seconds": float(getattr(telemetry, "current_backoff_sec", 0.0) or 0.0),
+            "probe_sent": bool(probe_sent),
+            "probes_dispatched": int(getattr(telemetry, "total_probes_dispatched", 0) or 0),
+            "reset_ready": bool(getattr(telemetry, "is_circuit_reset_ready", False)),
+        },
+    }
