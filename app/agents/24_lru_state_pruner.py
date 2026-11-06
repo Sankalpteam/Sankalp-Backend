@@ -252,3 +252,37 @@ def memory_pressure_now(total_mb: float = 0.0) -> str:
         return evaluate_system_pressure(100.0 * process_rss_mb() / total_mb)
 
     return "NORMAL"
+
+
+# ---------------------------------------------------------------- the envelope
+
+TOOL_NAME = "lru_pruner"
+
+
+def envelope(report: Any, *, memory_pressure_pct: float = 0.0) -> dict[str, Any]:
+    """What was given up, and under what pressure.
+
+    ``freed_kb`` is deliberately zero: this pruner counts entries, not bytes. ``sys.getsizeof``
+    on a container reports the container, not what it holds, and a made-up number is worse
+    than an honest zero.
+    """
+    if report is None:
+        return {"tool": TOOL_NAME, "status": "skipped", "payload": {}}
+
+    evicted = (
+        int(getattr(report, "expired_removed", 0) or 0)
+        + int(getattr(report, "lru_evicted", 0) or 0)
+        + int(getattr(report, "emergency_shed", 0) or 0)
+    )
+
+    return {
+        "tool": TOOL_NAME,
+        "status": "pruned" if evicted else "idle",
+        "payload": {
+            "memory_pressure_pct": round(float(memory_pressure_pct), 1),
+            "evicted_items": evicted,
+            "freed_kb": 0.0,
+            "remaining_entries": int(getattr(report, "remaining_entries", 0) or 0),
+            "pressure_level": str(getattr(report, "pressure_level", "") or ""),
+        },
+    }

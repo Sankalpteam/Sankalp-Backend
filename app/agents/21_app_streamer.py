@@ -186,3 +186,31 @@ class AppStreamSupervisor:
                 },
             )
         )
+
+
+# ---------------------------------------------------------------- the envelope
+
+TOOL_NAME = "streamer"
+
+
+def envelope(metrics: Any) -> dict[str, Any]:
+    """What the transport did, counted rather than described.
+
+    ``early_abort`` is the whole point: it says the client left and the generator was
+    cancelled, which is the difference between a stream that ended and one that was stopped.
+    """
+    if metrics is None:
+        return {"tool": TOOL_NAME, "status": "skipped", "payload": {}}
+
+    aborted = bool(getattr(metrics, "aborted_early", False))
+
+    return {
+        "tool": TOOL_NAME,
+        "status": "client_disconnected" if aborted else "completed",
+        "payload": {
+            "bytes_streamed": int(getattr(metrics, "total_characters", 0) or 0),
+            "chunks_count": int(getattr(metrics, "total_chunks", 0) or 0),
+            "early_abort": aborted,
+            "tokens_saved": int(getattr(metrics, "tokens_saved", 0) or 0),
+        },
+    }

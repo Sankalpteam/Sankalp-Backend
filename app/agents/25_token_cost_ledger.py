@@ -256,3 +256,27 @@ def action_chips(summary: LedgerSummary) -> list[dict[str, str]]:
         return [{"label": "View Cost Savings Report", "action": "view_savings_report"}]
 
     return [{"label": "View Token Spend", "action": "view_token_spend"}]
+
+
+# ---------------------------------------------------------------- the envelope
+
+TOOL_NAME = "cost_ledger"
+
+
+def envelope(summary: Any) -> dict[str, Any]:
+    """Accounting facts. No advice, no warning, no sentence about the bill."""
+    if summary is None:
+        return {"tool": TOOL_NAME, "status": "skipped", "payload": {}}
+
+    return {
+        "tool": TOOL_NAME,
+        "status": "recorded",
+        "payload": {
+            "prompt_tokens": int(getattr(summary, "total_input_tokens", 0) or 0),
+            "completion_tokens": int(getattr(summary, "total_output_tokens", 0) or 0),
+            # Micro-dollars, because a tenth of a cent is the unit and floats drift.
+            "cost_microusds": int(round(float(getattr(summary, "total_spent_usd", 0.0)) * 1_000_000)),
+            "efficiency_ratio": round(float(getattr(summary, "efficiency_ratio", 0.0) or 0.0), 4),
+            "saved_microusds": int(round(float(getattr(summary, "total_saved_usd", 0.0)) * 1_000_000)),
+        },
+    }
