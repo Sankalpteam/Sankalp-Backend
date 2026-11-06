@@ -79,6 +79,10 @@ _CEILING_MESSAGES = {
 }
 
 
+PROMPT_TOO_LARGE = "PROMPT_TOO_LARGE"
+BUDGET_EXHAUSTED = "BUDGET_EXHAUSTED"
+
+
 @dataclass(slots=True)
 class _Ledger:
     tokens: int = 0
@@ -307,7 +311,7 @@ def evaluate(
             allocated_max_tokens=0,
             estimated_prompt_tokens=estimated,
             daily_tokens_remaining=remaining,
-            rejection_reason="PROMPT_TOO_LARGE",
+            rejection_reason=PROMPT_TOO_LARGE,
             client_message=_message("ceiling", language),
             telemetry_micros=(time.perf_counter() - started) * 1_000_000,
         )
@@ -318,7 +322,7 @@ def evaluate(
             allocated_max_tokens=0,
             estimated_prompt_tokens=estimated,
             daily_tokens_remaining=remaining,
-            rejection_reason="QUOTA_EXHAUSTED",
+            rejection_reason=BUDGET_EXHAUSTED,
             client_message=_message("quota", language),
             telemetry_micros=(time.perf_counter() - started) * 1_000_000,
         )

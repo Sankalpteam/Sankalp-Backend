@@ -176,6 +176,14 @@ def canonical_key(cleaned_query: str, language: str = "", register: str = "") ->
 # ---------------------------------------------------------------- eligibility
 
 
+# The placeholders agent 03 leaves behind.
+_PII_MARKER = re.compile(
+    r"\[(?:Aadhaar|PAN|IFSC|UPI|Card|Phone|API Key|AWS Key|GitHub Token|Token|Credentials|Email)"
+    r" Redacted\]",
+    re.IGNORECASE,
+)
+
+
 def should_store(cleaned_query: str, subject: str = "") -> bool:
     """Whether this question may be remembered at all.
 
@@ -194,6 +202,12 @@ def should_store(cleaned_query: str, subject: str = "") -> bool:
         return False
 
     if _MUTATION.search(text):
+        return False
+
+    # The vault runs before this and leaves a placeholder where the PII was. A cache entry
+    # built from that text would serve the placeholder to everyone, and the placeholder is
+    # itself proof that the question carried somebody's data.
+    if _PII_MARKER.search(text):
         return False
 
     return True

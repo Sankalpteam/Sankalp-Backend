@@ -68,6 +68,23 @@ def reset() -> None:
         _state[key] = CircuitState()
 
 
+def accept_healer_recovery(provider: str = GEMINI, *, now: float | None = None) -> str:
+    """Agent 26 has proved the provider is back: close the circuit deliberately.
+
+    This is not ``note_success``. A success is one data point counted toward a threshold; a
+    healer recovery is the healer's own three-in-a-row verdict, and re-counting it here would
+    make the breaker's threshold and the healer's threshold disagree about the same events.
+    """
+    key = (provider or GEMINI).strip().casefold()
+    moment = _now(now)
+
+    # The state is derived from the counters, so clearing them is the close: no separate
+    # field to fall out of step with the failures that produced it.
+    _state[key] = CircuitState()
+
+    return state_of(key, now=moment)
+
+
 def enabled() -> bool:
     import os
 

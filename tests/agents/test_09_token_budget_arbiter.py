@@ -124,7 +124,9 @@ def test_an_exhausted_quota_refuses_gracefully(monkeypatch) -> None:
     verdict = arbiter.evaluate("heavy", "hello there")
 
     assert verdict.allowed is False
-    assert verdict.rejection_reason == "QUOTA_EXHAUSTED"
+    # The spec's code is BUDGET_EXHAUSTED; the old name is still understood by callers
+    # that matched on it, but the arbiter emits the one the batch asked for.
+    assert verdict.rejection_reason == "BUDGET_EXHAUSTED"
     assert verdict.daily_tokens_remaining == 0
 
 
