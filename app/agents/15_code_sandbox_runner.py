@@ -381,3 +381,32 @@ def validate_and_execute(call: SandboxToolCall, *, language: str = "en") -> Sand
         ],
         telemetry_micros=(time.perf_counter() - started) * 1_000_000,
     )
+
+# ---------------------------------------------------------------- the envelope
+
+TOOL_NAME = "code_sandbox"
+
+
+def envelope(result: Any) -> dict[str, Any]:
+    """The typed contract: {tool, status, payload}, and no prose.
+
+    The result objects carry a human-readable line as well, and it is deliberately NOT here:
+    that line is grounding for the model, not an answer for the person. An agent that returns
+    a sentence has written the reply, and this batch exists to keep that boundary.
+    """
+    if result is None:
+        return {"tool": TOOL_NAME, "status": "skipped", "payload": {}}
+
+    success = bool(getattr(result, "success", False))
+    error = getattr(result, "error_code", None)
+
+    return {
+        "tool": TOOL_NAME,
+        "status": "success" if success else ("skipped" if error == "SKIPPED" else "error"),
+        "payload": {
+        "exit_code": 0 if result.success else 1,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "duration_ms": round(result.telemetry_micros / 1000.0, 3),
+        },
+    }

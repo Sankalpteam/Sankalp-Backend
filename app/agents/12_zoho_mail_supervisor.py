@@ -541,3 +541,29 @@ def _default_executor() -> Callable[..., Any]:
         )
 
     return run
+
+# ---------------------------------------------------------------- the envelope
+
+TOOL_NAME = "mail_supervisor"
+
+
+def envelope(result: Any) -> dict[str, Any]:
+    """The typed contract: {tool, status, payload}, and no prose.
+
+    The result objects carry a human-readable line as well, and it is deliberately NOT here:
+    that line is grounding for the model, not an answer for the person. An agent that returns
+    a sentence has written the reply, and this batch exists to keep that boundary.
+    """
+    if result is None:
+        return {"tool": TOOL_NAME, "status": "skipped", "payload": {}}
+
+    success = bool(getattr(result, "success", False))
+    error = getattr(result, "error_code", None)
+
+    return {
+        "tool": TOOL_NAME,
+        "status": "success" if success else ("skipped" if error == "SKIPPED" else "error"),
+        "payload": {
+        "data": result.data,
+        },
+    }
