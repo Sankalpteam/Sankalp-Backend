@@ -584,6 +584,12 @@ def _format_github_result(name: str, result: dict[str, Any]) -> str:
     if not result.get("ok"):
         # A held write carries a ready reply; anything else carries a message.
         return str(result.get("reply") or result.get("message") or "The GitHub request could not be completed.")
+
+    # Agent 11 already scrubbed this: home paths, credentials and an oversized diff are
+    # handled there, so the text it produced is the one the model should read.
+    sanitized = str(result.get("sanitized_text") or "").strip()
+    if sanitized:
+        return sanitized
     data = result.get("result")
     if not isinstance(data, dict):
         return "GitHub returned no usable data."

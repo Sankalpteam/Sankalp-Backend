@@ -38,6 +38,15 @@ from app.ai.execution.tools import run_tool_async
 
 _EMAIL_TOOL_NAMES = frozenset(item["name"] for item in EMAIL_TOOL_DECLARATIONS)
 _GITHUB_TOOL_NAMES = frozenset(item["name"] for item in GITHUB_TOOL_DECLARATIONS)
+
+# The GitHub reads agent 11 declares, and how the model's argument names map onto its own.
+# Only these three: the supervisor is read-only by design, and every write still goes through
+# the plugin's approval flow.
+_GITHUB_SUPERVISOR_ROUTES: dict[str, tuple[str, dict[str, str]]] = {
+    "github_list_branches": ("github_list_branches", {"repository": "repo", "per_page": "limit"}),
+    "github_get_commit": ("github_get_commit", {"repository": "repo", "sha": "ref"}),
+    "github_list_pull_requests": ("github_list_prs", {"repository": "repo"}),
+}
 # Email tools that change state and must run at most once per user message.
 _EMAIL_WRITE_TOOLS = frozenset(
     {
@@ -268,6 +277,48 @@ async def dispatch_tool(
         return await execute_email_tool(
             user_id, conversation_id, name, arguments, original_message=original_message
         )
+
+    route = _GITHUB_SUPERVISOR_ROUTES.get(name)
+    if route is not None:
+        # Through agent 11, which validates the call, keeps the token out of every
+        # structure it returns, scrubs home paths and credentials out of the payload and
+        # truncates a large diff at 10k characters. The plugin path stays for the tools
+        # the supervisor does not declare.
+        from app.agents import github_supervisor
+
+        supervisor = github_supervisor()
+        agent_tool, mapping = route
+
+        mapped = {
+            target: arguments[source]
+            for source, target in mapping.items()
+            if arguments.get(source) not in (None, "")
+        }
+        if "repo" not in mapped:
+            hint = arguments.get("repository_hint")
+            if hint not in (None, ""):
+                mapped["repo"] = hint
+
+        outcome = await supervisor.validate_and_execute(
+            supervisor.GitHubToolCall(agent_tool, mapped),
+            user_id=user_id,
+        )
+        envelope = supervisor.envelope(outcome)
+
+        if envelope["status"] == "success":
+            return {
+                "ok": True,
+                "result": envelope["payload"]["data"],
+                # The scrubbed text is what the model reads; the raw data rides along for
+                # anything downstream that needs structure.
+                "sanitized_text": str(getattr(outcome, "sanitized_output", "") or ""),
+            }
+
+        return {
+            "ok": False,
+            "code": str(getattr(outcome, "error_code", "") or "GITHUB_ERROR"),
+            "message": str(getattr(outcome, "error_message", "") or "The GitHub request could not be completed."),
+        }
 
     if name in _GITHUB_TOOL_NAMES:
         from app.plugins.github.chat_tools import _execute_github_tool

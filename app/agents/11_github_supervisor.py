@@ -267,6 +267,11 @@ def _may_contain_secret(text: str) -> bool:
     return _MAYBE_SECRET.search(text) is not None
 
 
+# /home/<user> and /Users/<user>, which is where a path stops being about the code and
+# starts being about the machine.
+_HOME_PATH = re.compile(r"/(?:home|Users)/[^/\s\"']+")
+
+
 def sanitize_payload(raw_content: str, *, limit: int = MAX_DIFF_CHARS) -> str:
     """Remove what must not reach a model, then bound what is left.
 
@@ -275,6 +280,11 @@ def sanitize_payload(raw_content: str, *, limit: int = MAX_DIFF_CHARS) -> str:
     enters a prompt, which is the only point at which it can still be prevented.
     """
     body = raw_content or ""
+
+    # A payload that names /home/ubuntu/Indoone-Backend tells the model where the box lives,
+    # and a model can repeat it. The user gains nothing from the prefix; the repository path
+    # after it is what they asked about.
+    body = _HOME_PATH.sub("~", body)
 
     body = _PRIVATE_KEY.sub(REDACTED, body)
     body = _BEARER.sub(lambda match: f"{match.group(1)} {REDACTED}", body)
