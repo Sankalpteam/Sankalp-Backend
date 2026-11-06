@@ -275,23 +275,47 @@ async def dispatch_tool(
         return await _execute_github_tool(user_id, name, arguments)
 
     if name == "search_web":
+        # Through agent 14, not around it. The supervisor owns the perimeter - it drops
+        # private hosts, strips tracking parameters, purifies HTML and truncates at a
+        # sentence boundary - and running the search here instead would leave all of that
+        # guarding a path nobody uses.
+        from app.agents import web_supervisor
         from app.web_research.tools import SearchWebToolCall, execute_search_web_call
 
-        call = SearchWebToolCall(query=str(arguments.get("query") or "").strip(), model_content={})
-        result = await execute_search_web_call(call)
-        if result.status == "ok":
+        supervisor = web_supervisor()
+        # The supervisor reads an iterable of results, so the wrapper hands it the list and
+        # remembers the status separately - the status is what the error message is chosen by.
+        searched = {"status": "ok"}
+
+        async def _search(query: str, limit: int = 5) -> Any:
+            outcome = await execute_search_web_call(
+                SearchWebToolCall(query=query, model_content={})
+            )
+            searched["status"] = str(getattr(outcome, "status", "error"))
+            return getattr(outcome, "results", []) or []
+
+        call = supervisor.WebToolCall(
+            "web_search",
+            {"query": str(arguments.get("query") or "").strip()},
+        )
+        outcome = await supervisor.validate_and_execute(call, searcher=_search)
+        envelope = supervisor.envelope(outcome)
+
+        if envelope["status"] == "success":
             return {
                 "ok": True,
                 "result": {
-                    "status": result.status,
-                    "results": [
-                        {"title": item.title, "url": item.url, "snippet": item.snippet}
-                        for item in result.results
-                    ],
+                    "status": "ok",
+                    "results": envelope["payload"]["data"],
                 },
             }
-        message = SEARCH_RESULT_MESSAGES.get(result.status, SEARCH_FAILED)
-        return {"ok": False, "code": f"SEARCH_{result.status.upper()}", "message": message}
+
+        # The search's own status is the specific truth about why it failed; the supervisor's
+        # code describes its view of the same event and is the fallback for a refused query.
+        status = str(searched["status"] or "")
+        code = status if status and status != "ok" else str(getattr(outcome, "error_code", "") or "FAILED")
+        message = SEARCH_RESULT_MESSAGES.get(status, SEARCH_FAILED)
+        return {"ok": False, "code": f"SEARCH_{code.upper()}", "message": message}
 
     spec = get_tool_spec(name)
     if spec is None:
