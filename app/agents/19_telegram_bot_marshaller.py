@@ -295,3 +295,47 @@ def parse_and_normalize(
         return done(TelegramIngressResult(is_valid=True, status_code=200, normalized_message=normalized))
 
     return done(TelegramIngressResult(is_valid=False, status_code=400, error_message=_MESSAGES["EMPTY"]))
+
+
+# ---------------------------------------------------------------- the envelope
+
+TOOL_NAME = "telegram_normalizer"
+
+
+def envelope(result: Any) -> dict[str, Any]:
+    """The normalised message, or why there is not one.
+
+    A duplicate is a status, not an error: the sender did nothing wrong, the network did.
+    """
+    if result is None:
+        return {"tool": TOOL_NAME, "status": "skipped", "payload": {}}
+
+    message = getattr(result, "normalized_message", None)
+    status_code = int(getattr(result, "status_code", 0) or 0)
+
+    if not getattr(result, "is_valid", False):
+        return {
+            "tool": TOOL_NAME,
+            "status": "error",
+            "payload": {"status_code": status_code},
+        }
+
+    if message is None:
+        return {"tool": TOOL_NAME, "status": "skipped", "payload": {"status_code": status_code}}
+
+    if getattr(message, "is_duplicate", False):
+        return {
+            "tool": TOOL_NAME,
+            "status": "duplicate",
+            "payload": {"sender_id": message.channel_user_id, "channel": TOOL_NAME.split("_")[0]},
+        }
+
+    payload = {
+        "sender_id": message.channel_user_id,
+        "text": getattr(message, "text_content", "") or "",
+        "timestamp": int(getattr(message, "timestamp_epoch", 0) or 0),
+        "channel": TOOL_NAME.split("_")[0],
+        "message_type": getattr(message, "message_type", "text"),
+    }
+
+    return {"tool": TOOL_NAME, "status": "success", "payload": payload}
