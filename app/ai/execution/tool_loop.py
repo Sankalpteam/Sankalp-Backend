@@ -310,8 +310,11 @@ async def dispatch_tool(
                 },
             }
 
-        code = str(getattr(outcome, "error_code", "") or searched["status"] or "FAILED")
-        message = SEARCH_RESULT_MESSAGES.get(searched["status"], SEARCH_FAILED)
+        # The search's own status is the specific truth about why it failed; the supervisor's
+        # code describes its view of the same event and is the fallback for a refused query.
+        status = str(searched["status"] or "")
+        code = status if status and status != "ok" else str(getattr(outcome, "error_code", "") or "FAILED")
+        message = SEARCH_RESULT_MESSAGES.get(status, SEARCH_FAILED)
         return {"ok": False, "code": f"SEARCH_{code.upper()}", "message": message}
 
     spec = get_tool_spec(name)
