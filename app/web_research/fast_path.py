@@ -15,6 +15,8 @@ There is nothing left to promise.
 
 from __future__ import annotations
 
+from app.ai.execution.request_context import now_line
+
 import logging
 import re
 
@@ -41,6 +43,14 @@ _COMMAND_NOISE = re.compile(
 
 # What the model is told once the results are in hand. Every clause here is a failure that
 # was seen in the app: a promise, a question back, or an answer that ignored the sources.
+# The date belongs here for the same reason it belongs in every other door into the model:
+# "the latest news today" answered by a model that does not know what today is comes back
+# with whatever year its training data ended. This path is reached from the app, the web and
+# every channel, so leaving it out would have made all of them wrong in the same way.
+def _instruction() -> str:
+    return f"{now_line()} {_INSTRUCTION}"
+
+
 _INSTRUCTION = (
     "A web search for this message has ALREADY been run, and its results are in the "
     "document context above. Answer from those results in this one reply, in the language "
@@ -138,7 +148,7 @@ async def web_research_answer(
             message,
             history=history,
             document_context=format_results(list(result.results)),
-            extra_system_instruction=_INSTRUCTION,
+            extra_system_instruction=_instruction(),
         )
     except Exception as exc:
         logger.warning("web research answer failed, returning the sources: %s", exc)
