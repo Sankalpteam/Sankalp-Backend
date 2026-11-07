@@ -7,6 +7,7 @@ import os
 from app.agents import load as load_agent
 from app.ai.execution.account_context import accounts_instruction, without_stale_refusals
 from app.ai.execution.request_context import conversation_instruction
+from app.ai.execution.tool_failure import failure_line, take_tool_failure
 from app.plugins.festivals.calendar import festival_answer
 from app.web_research.fast_path import answer_instead_of_promise, web_research_answer
 from app.ai.execution.conversation_digest import conversation_history_answer
@@ -175,6 +176,11 @@ async def _generate_with_history(owner_user_id: str, channel: str, sender_id: st
 
     if reply is None:
         try:
+            # A tool that failed recorded why; the model says it in the user's language.
+            tool_failure = take_tool_failure()
+            if tool_failure:
+                instruction = f"{instruction} {failure_line(tool_failure)}".strip()
+
             reply = await generate_reply(text, history=history, extra_system_instruction=instruction)
         except Exception:
             # A channel message must never be left unanswered.

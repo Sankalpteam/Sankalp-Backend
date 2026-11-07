@@ -22,6 +22,7 @@ from app.ai.execution.tool_loop import (
 )
 from app.ai.execution.tool_registry import function_declarations, get_tool_spec
 from app.capabilities.connectors.store import get_integration_token_metadata
+from app.ai.execution.tool_failure import take_tool_failure
 from app.plugins.github.chat_tools import _format_github_result
 
 logger = logging.getLogger("indoone.vibe")
@@ -226,7 +227,16 @@ def _voice_tool_result(name: str, result: object) -> dict[str, object]:
     summary = _format_github_result(name, result)
     if result.get("ok"):
         return {"ok": True, "output": summary}
-    return {"ok": False, "error": summary}
+
+    # Voice has no model turn after a tool call to phrase a failure, so it says the reason
+    # itself. Everywhere else the tool records the reason and the model speaks it; here the
+    # live session is already open and the words have to come from this side.
+    reason = take_tool_failure()
+    return {
+        "ok": False,
+        "error": reason
+        or str(result.get("message") or "The GitHub request did not complete."),
+    }
 
 
 def _google_error_detail(message: dict[str, object], api_key: str) -> str:

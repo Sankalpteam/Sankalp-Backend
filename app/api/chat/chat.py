@@ -36,6 +36,7 @@ from app.api.security.dependencies import current_user_id
 from app.ai.gateway.gemini_service import ModelBusyError
 from app.ai.execution.account_context import accounts_instruction, without_stale_refusals
 from app.ai.execution.request_context import conversation_instruction
+from app.ai.execution.tool_failure import failure_line, take_tool_failure
 from app.ai.execution.confirmation import classify_reply_async
 from app.ai.execution import limits as chat_limits
 from app.ai.execution.tool_loop import run_tool_loop
@@ -680,6 +681,14 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
             )
 
         request.state.budget = arbitration
+
+        # A tool that failed left its reason behind instead of a sentence. It goes into the
+        # instruction so the model can say it in the user's own language - which is the only
+        # way a failure reaches them without the tool layer putting English words in the
+        # assistant's mouth.
+        tool_failure = take_tool_failure()
+        if tool_failure:
+            extra_instruction = f"{extra_instruction} {failure_line(tool_failure)}".strip()
 
         if treasury_reply is not None:
             reply_with_sources = treasury_reply

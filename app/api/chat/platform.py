@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from app.ai.quality.answer_quality import assess_answer
 from app.ai.execution.account_context import accounts_instruction, without_stale_refusals
 from app.ai.execution.request_context import conversation_instruction
+from app.ai.execution.tool_failure import failure_line, take_tool_failure
 from app.ai.execution.tool_loop import run_tool_loop
 from app.ai.execution import action_chips
 from app.ai.memory.conversation_store import ConversationStore
@@ -102,6 +103,11 @@ async def stream_chat(request: Request, body: StreamChatRequest) -> StreamingRes
                 )
         except Exception:
             tool_reply = None
+
+    # The same rule as /api/chat: a failed tool hands its reason to the model.
+    tool_failure = take_tool_failure()
+    if tool_failure:
+        accounts = f"{accounts} {failure_line(tool_failure)}".strip()
 
     def event(payload: dict) -> str:
         return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"

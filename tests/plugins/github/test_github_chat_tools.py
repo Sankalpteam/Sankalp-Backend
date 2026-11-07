@@ -4,6 +4,7 @@ import pytest
 
 from app.ai.execution.tool_registry import get_tool_spec, requires_approval
 from app.ai.execution.tools import ToolResult
+from app.ai.execution import tool_failure
 from app.plugins.github import chat_tools
 
 
@@ -96,9 +97,10 @@ async def test_github_tool_error_does_not_claim_live_data(monkeypatch) -> None:
         "user-123", "List my GitHub repositories"
     )
 
-    assert reply is not None
-    assert "not connected" in reply.lower()
-    assert "repository" not in reply.lower()
+    # A failed call no longer answers in the assistant's voice. It hands the turn back to
+    # the model - None here - with the reason recorded for it to phrase.
+    assert reply is None
+    assert "not connected" in tool_failure.take_tool_failure().lower()
 
 
 def test_github_ai_tools_are_read_only_connector_tools() -> None:
