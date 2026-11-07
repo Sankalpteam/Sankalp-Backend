@@ -5,6 +5,8 @@ Indoone user and passes through the shared connector authorization policy.
 """
 from __future__ import annotations
 
+from app.ai.execution.tool_failure import record_tool_failure
+
 import json
 import os
 import re
@@ -582,8 +584,22 @@ def _format_github_result(name: str, result: dict[str, Any]) -> str:
     answer was thrown away here.
     """
     if not result.get("ok"):
-        # A held write carries a ready reply; anything else carries a message.
-        return str(result.get("reply") or result.get("message") or "The GitHub request could not be completed.")
+        # A held write carries a ready reply, and that reply is a question the user has to
+        # answer - it is not a failure and it must still reach them word for word.
+        #
+        # Anything else is a failure, and a failure gets no sentence from here. The reason
+        # is recorded and the model says it in the user's language; the tool writing its own
+        # English apology is how "The GitHub request could not be completed." ended up in the
+        # chat as if the assistant had chosen those words.
+        reply = str(result.get("reply") or "").strip()
+
+        if reply:
+            return reply
+
+        record_tool_failure(
+            str(result.get("message") or result.get("code") or "the GitHub request did not complete")
+        )
+        return ""
 
     # Agent 11 already scrubbed this: home paths, credentials and an oversized diff are
     # handled there, so the text it produced is the one the model should read.
@@ -1029,4 +1045,12 @@ async def handle_github_chat_with_tools(
 
     tool_arguments = resolved_arguments
     result = await _execute_github_tool(user, tool_name, tool_arguments, (), conversation_id, message=message)
+
+    if not result.get("ok") and not str(result.get("reply") or "").strip():
+        # The call failed and there is nothing to show. Returning "" would send an empty
+        # reply; returning None lets the model answer, and the reason it needs was recorded
+        # by _format_github_result above.
+        _format_github_result(tool_name, result)
+        return None
+
     return _format_github_result(tool_name, result)

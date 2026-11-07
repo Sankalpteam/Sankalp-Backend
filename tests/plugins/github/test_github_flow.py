@@ -9,6 +9,7 @@ import json
 
 import pytest
 
+from app.ai.execution import tool_failure
 from app.plugins.github import chat_tools
 
 
@@ -166,9 +167,18 @@ def test_an_unknown_tool_hands_over_the_data_not_a_sentence():
     assert "key" in answer
 
 
-def test_a_failed_result_reports_its_message():
+def test_a_failed_result_reports_its_message_to_the_model_not_the_user():
+    """The reason still travels - just not as words the user reads.
+
+    The tool used to return "not connected" as its own sentence, and the chat sent that
+    sentence as the assistant's reply. The reason is now recorded for the model, which says
+    it in the language the person wrote in.
+    """
+    tool_failure.clear_tool_failure()
     answer = chat_tools._format_github_result("github_list_branches", {"ok": False, "message": "not connected"})
-    assert "not connected" in answer
+
+    assert answer == ""
+    assert "not connected" in tool_failure.take_tool_failure()
 
 
 # --------------------------------------------------------------------------- #
