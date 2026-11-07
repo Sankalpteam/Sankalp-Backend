@@ -15,7 +15,7 @@ There is nothing left to promise.
 
 from __future__ import annotations
 
-from app.ai.execution.request_context import now_line
+from app.ai.execution.request_context import conversation_instruction, now_line
 
 import logging
 import re
@@ -47,8 +47,13 @@ _COMMAND_NOISE = re.compile(
 # "the latest news today" answered by a model that does not know what today is comes back
 # with whatever year its training data ended. This path is reached from the app, the web and
 # every channel, so leaving it out would have made all of them wrong in the same way.
-def _instruction() -> str:
-    return f"{now_line()} {_INSTRUCTION}"
+def _instruction(user_id: str = "") -> str:
+    """The shared context, then the search-specific rules.
+
+    The same builder every other door uses, so a research answer knows the user and the date
+    for the same reason the chat does.
+    """
+    return f"{conversation_instruction(user_id)} {_INSTRUCTION}"
 
 
 _INSTRUCTION = (
@@ -103,6 +108,7 @@ async def web_research_answer(
     *,
     history: list[tuple[str, str]] | None = None,
     force: bool = False,
+    user_id: str = "",
 ) -> str | None:
     """The grounded answer for a research request, or None when this is not one.
 
@@ -148,7 +154,7 @@ async def web_research_answer(
             message,
             history=history,
             document_context=format_results(list(result.results)),
-            extra_system_instruction=_instruction(),
+            extra_system_instruction=_instruction(user_id),
         )
     except Exception as exc:
         logger.warning("web research answer failed, returning the sources: %s", exc)

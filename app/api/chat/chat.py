@@ -35,7 +35,7 @@ from app.web_research.grounding import split_grounded_sources
 from app.api.security.dependencies import current_user_id
 from app.ai.gateway.gemini_service import ModelBusyError
 from app.ai.execution.account_context import accounts_instruction, without_stale_refusals
-from app.ai.execution.request_context import now_line, user_name_line
+from app.ai.execution.request_context import conversation_instruction
 from app.ai.execution.confirmation import classify_reply_async
 from app.ai.execution import limits as chat_limits
 from app.ai.execution.tool_loop import run_tool_loop
@@ -484,12 +484,7 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
         # Two short lines: the user's name, and today's date and time. Together they
         # cost about 16 tokens; the date line is what stops the model answering a
         # date question from its training memory.
-        extra_lines = [
-            line
-            for line in (user_name_line(user_id), now_line(), accounts_instruction(user_id))
-            if line
-        ]
-        extra_instruction = " ".join(extra_lines)
+        extra_instruction = conversation_instruction(user_id)
         # An earlier "I don't have access" must not be replayed now that an account is
         # connected: the model reads its own last answer as context, and an old refusal
         # is a strong pull. Only the assistant's turns are dropped, never the user's.
@@ -566,7 +561,7 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
             # app used to reply "one moment, I will fetch it" and then not fetch it, and
             # the user had to send "kodu" for the answer the first message should carry.
             if tool_reply is None and not email_owns_this:
-                tool_reply = await web_research_answer(body.message, history=history)
+                tool_reply = await web_research_answer(body.message, history=history, user_id=user_id)
 
             # No gate on whether to offer tools: the model is given four small
             # declarations and find_tools, so an ordinary message costs a few hundred

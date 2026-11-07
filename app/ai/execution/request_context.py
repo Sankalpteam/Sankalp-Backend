@@ -55,3 +55,30 @@ def now_line() -> str:
 
     now = datetime.now(_IST)
     return f"Today is {now:%Y-%m-%d} ({now:%A}), {now:%H:%M} IST."
+
+
+def conversation_instruction(user_id: str) -> str:
+    """The instruction that goes with any message, from any surface.
+
+    One function, called by every door into the model: the app's blocking chat, the web's
+    stream, the channel handler behind WhatsApp, Telegram and Instagram, and the
+    web-research fast path.
+
+    It exists because the three lines used to be assembled at each door. Four copies of the
+    same three lines is four chances to leave one out, and one of them was left out: the
+    stream answered "Today is Wednesday, May 22, 2024" while the app answered correctly, and
+    the research path had no date at all. The date is the line a model cannot recover from
+    its training memory, which is why its absence showed up as a wrong answer rather than as
+    a missing one.
+    """
+    from app.ai.execution.account_context import accounts_instruction
+
+    return " ".join(
+        line
+        for line in (
+            user_name_line(user_id),
+            now_line(),
+            accounts_instruction(user_id),
+        )
+        if line
+    )

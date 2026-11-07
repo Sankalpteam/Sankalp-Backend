@@ -6,7 +6,7 @@ import os
 
 from app.agents import load as load_agent
 from app.ai.execution.account_context import accounts_instruction, without_stale_refusals
-from app.ai.execution.request_context import now_line, user_name_line
+from app.ai.execution.request_context import conversation_instruction
 from app.plugins.festivals.calendar import festival_answer
 from app.web_research.fast_path import answer_instead_of_promise, web_research_answer
 from app.ai.execution.conversation_digest import conversation_history_answer
@@ -49,15 +49,7 @@ def _instruction(owner_user_id: str) -> str:
     cannot drift from each other, and from the app.
     """
 
-    return " ".join(
-        line
-        for line in (
-            user_name_line(owner_user_id),
-            now_line(),
-            accounts_instruction(owner_user_id),
-        )
-        if line
-    )
+    return conversation_instruction(owner_user_id)
 
 
 async def _resolve_pending_write(
@@ -127,7 +119,7 @@ async def _generate_with_history(owner_user_id: str, channel: str, sender_id: st
     # A research request is answered here too: the search runs first, so the
     # model is never left to promise a lookup it does not perform.
     if calendar_reply is None:
-        calendar_reply = await web_research_answer(text)
+        calendar_reply = await web_research_answer(text, user_id=owner_user_id)
 
     store = ConversationStore()
     if calendar_reply is not None:
