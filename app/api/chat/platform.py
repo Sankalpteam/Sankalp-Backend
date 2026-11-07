@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.ai.quality.answer_quality import assess_answer
 from app.ai.execution.account_context import accounts_instruction, without_stale_refusals
+from app.ai.execution.request_context import now_line, user_name_line
 from app.ai.execution.tool_loop import run_tool_loop
 from app.ai.execution import action_chips
 from app.ai.memory.conversation_store import ConversationStore
@@ -57,7 +58,14 @@ async def stream_chat(request: Request, body: StreamChatRequest) -> StreamingRes
         ) or []
     except (ValueError, PermissionError):
         history = []
-    accounts = accounts_instruction(user_id)
+    # The same two context lines /api/chat sends, and for the same reason. Without the date
+    # the model answers "what is the date" from its training memory: the web, which streams,
+    # was told "Today is Wednesday, May 22, 2024" while the app, which does not stream, was
+    # right. The streaming endpoint must not be a lesser door into the same model.
+    context_lines = [
+        line for line in (user_name_line(user_id), now_line()) if line
+    ]
+    accounts = " ".join(context_lines + [accounts_instruction(user_id)]).strip()
     document_context = ""
     if body.file_id:
         try:
