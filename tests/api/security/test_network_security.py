@@ -90,7 +90,10 @@ def test_cors_allows_the_projects_own_web_origin_by_default(monkeypatch) -> None
     monkeypatch.delenv("INDOONE_ALLOWED_ORIGINS", raising=False)
     monkeypatch.setenv("INDOONE_TRUST_PROXY_HEADERS", "false")
 
-    assert allowed_origins() == ["https://indooneteam.github.io"]
+    assert allowed_origins() == [
+        "https://indooneteam.github.io",
+        "https://app.indoworkspace.in",
+    ]
 
     app = FastAPI()
     app.get("/")(lambda: {"status": "ok"})
@@ -112,6 +115,7 @@ def test_configured_origins_are_added_to_the_web_origin(monkeypatch) -> None:
 
     assert allowed_origins() == [
         "https://indooneteam.github.io",
+        "https://app.indoworkspace.in",
         "https://app.example.com",
     ]
 
@@ -136,3 +140,26 @@ def test_the_web_origin_is_allowed_even_when_another_is_configured(monkeypatch) 
     assert response.headers.get("access-control-allow-origin") == (
         "https://indooneteam.github.io"
     )
+
+
+def test_the_company_subdomain_is_allowed() -> None:
+    """The web app is moving to app.indoworkspace.in.
+
+    A browser sends the origin it was loaded from. If that origin is not in this list the
+    request is refused before it is sent, and the site looks like the backend is down - so
+    the subdomain has to be here before the DNS record exists, not after.
+    """
+    assert "https://app.indoworkspace.in" in allowed_origins()
+
+
+def test_the_subdomain_gets_a_cors_header(monkeypatch) -> None:
+    monkeypatch.setenv("INDOONE_ENV", "development")
+    monkeypatch.setenv("INDOONE_ALLOWED_HOSTS", "testserver")
+
+    app = FastAPI()
+    app.get("/")(lambda: {"status": "ok"})
+    configure_network_security(app)
+
+    response = TestClient(app).get("/", headers={"Origin": "https://app.indoworkspace.in"})
+
+    assert response.headers.get("access-control-allow-origin") == "https://app.indoworkspace.in"

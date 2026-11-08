@@ -19,7 +19,20 @@ _DEFAULT_ALLOWED_HOSTS = ("testserver", "localhost", "127.0.0.1")
 # It was tried as a fallback first, and that was not enough: the variable is
 # already set on the running server, and a set value won, so the web app stayed
 # blocked. The variable now adds to this origin rather than replacing it.
-_WEB_APP_ORIGIN = "https://indooneteam.github.io"
+# The web app answers on two names while it moves: the GitHub Pages address it has used so
+# far, and the company subdomain it is being given. Both are allowed during the move, so the
+# site keeps working on whichever address a person has open, and neither has to be removed in
+# the same deploy that adds the other.
+#
+# A browser sends the origin it was loaded from, so an address missing here is not a broken
+# page - it is every request refused, which looks like the backend being down.
+_WEB_APP_ORIGINS = (
+    "https://indooneteam.github.io",
+    "https://app.indoworkspace.in",
+)
+
+# Kept for the tests and for anything that still reads a single origin.
+_WEB_APP_ORIGIN = _WEB_APP_ORIGINS[0]
 
 
 def _csv_env(name: str) -> list[str]:
@@ -45,7 +58,7 @@ def allowed_origins() -> list[str]:
     INDOONE_ALLOWED_ORIGINS has been set. The variable adds any further
     origins a deployment needs.
     """
-    origins = [_WEB_APP_ORIGIN]
+    origins = list(_WEB_APP_ORIGINS)
 
     for origin in _csv_env("INDOONE_ALLOWED_ORIGINS"):
         if origin not in origins:
