@@ -692,7 +692,9 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
 
         if treasury_reply is not None:
             reply_with_sources = treasury_reply
-        elif tool_reply is not None:
+        elif tool_reply is not None and str(tool_reply).strip():
+            # An empty string is not an answer. Sending it would put an empty bubble in front
+            # of the user; falling through lets the model reply instead.
             reply_with_sources = tool_reply
         elif not media_attachments:
             reply_with_sources = await generate_reply(

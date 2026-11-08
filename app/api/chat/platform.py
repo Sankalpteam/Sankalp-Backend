@@ -119,7 +119,7 @@ async def stream_chat(request: Request, body: StreamChatRequest) -> StreamingRes
         failed = False
 
         try:
-            if tool_reply is not None:
+            if tool_reply is not None and str(tool_reply).strip():
                 text = tool_reply
                 yield event({"type": "delta", "text": text})
             else:
