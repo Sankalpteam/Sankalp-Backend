@@ -174,7 +174,9 @@ async def _generate_with_history(owner_user_id: str, channel: str, sender_id: st
             logger.exception("channel tool loop failed", extra={"channel": channel})
             reply = None
 
-    if reply is None:
+    # An empty string is not an answer either - a channel has no second screen to explain
+    # an empty message on.
+    if reply is None or not str(reply).strip():
         try:
             # A tool that failed recorded why; the model says it in the user's language.
             tool_failure = take_tool_failure()

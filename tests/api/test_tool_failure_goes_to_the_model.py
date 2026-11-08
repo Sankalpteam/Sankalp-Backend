@@ -81,3 +81,21 @@ def test_every_surface_passes_the_reason_to_the_model() -> None:
     ):
         assert "take_tool_failure()" in source, "a surface that ignores the reason answers with nothing"
         assert "failure_line(" in source
+
+
+def test_an_empty_reply_is_not_an_answer() -> None:
+    """An empty string is not None, and sending it puts an empty bubble in front of the user.
+
+    Every surface must fall through to the model when the tool produced no words, or the
+    person is left looking at nothing with no way to know whether anything happened.
+    """
+    from app.api.chat import chat, platform
+    from app.capabilities.platform import channel_common
+
+    for source in (
+        inspect.getsource(chat),
+        inspect.getsource(platform.stream_chat),
+        inspect.getsource(channel_common),
+    ):
+        assert ".strip()" in source and "tool_reply" in source or "reply" in source
+        assert 'str(tool_reply).strip()' in source or 'str(reply).strip()' in source
