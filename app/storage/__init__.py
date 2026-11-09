@@ -1,1 +1,1 @@
-"""External storage integrations for Indoone."""
+"""External storage integrations for Sankalp."""

@@ -140,7 +140,7 @@ def audit_dataset(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Audit whether Indoone training data is ready for a serious model run")
+    parser = argparse.ArgumentParser(description="Audit whether Sankalp training data is ready for a serious model run")
     parser.add_argument("--corpus", type=Path, default=Path("data/raw/indoone_corpus.txt"))
     parser.add_argument(
         "--instructions",

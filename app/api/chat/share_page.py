@@ -134,7 +134,7 @@ def _page(title: str, inner: str) -> str:
 <body>
 <div class="banner">
   <span>Shared conversation • Read only</span>
-  <a href="https://indoone.ai" rel="noopener">Try Indoone</a>
+  <a href="https://indoone.ai" rel="noopener">Try Sankalp</a>
 </div>
 <main>
 {inner}
@@ -160,17 +160,17 @@ def render_share_page(title: str, messages: list[tuple[str, str]]) -> str:
 
     if not messages:
         inner = (
-            f'<div class="brand">Indoone AI</div><h1>{html.escape(heading)}</h1>'
+            f'<div class="brand">Sankalp</div><h1>{html.escape(heading)}</h1>'
             '<p class="empty">This conversation has no messages yet.</p>'
         )
 
-        return _page(f"{heading} — Indoone AI", inner)
+        return _page(f"{heading} — Sankalp", inner)
 
     rows: list[str] = []
 
     for role, content in messages:
         is_user = role == "user"
-        who = "You" if is_user else "Indoone AI"
+        who = "You" if is_user else "Sankalp"
         rows.append(
             f'<div class="row {"user" if is_user else "ai"}">'
             f'<div class="bubble"><div class="who">{who}</div>{render_body(content)}</div>'
@@ -185,12 +185,12 @@ def render_share_page(title: str, messages: list[tuple[str, str]]) -> str:
     )
 
     inner = (
-        f'<div class="brand">Indoone AI</div><h1>{html.escape(heading)}</h1>'
+        f'<div class="brand">Sankalp</div><h1>{html.escape(heading)}</h1>'
         + note
         + "".join(rows)
     )
 
-    return _page(f"{heading} — Indoone AI", inner)
+    return _page(f"{heading} — Sankalp", inner)
 
 
 def render_not_found() -> str:
@@ -205,4 +205,4 @@ def render_not_found() -> str:
         "It may have been withdrawn by the person who created it.</p>"
     )
 
-    return _page("Chat not found — Indoone AI", inner)
+    return _page("Chat not found — Sankalp", inner)

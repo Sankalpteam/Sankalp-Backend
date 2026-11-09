@@ -224,7 +224,7 @@ def upsert_integration_token(
 def get_single_integration_token_user_id(integration_id: str) -> str | None:
     """Return the owner of the sole connected account for an integration.
 
-    Webhook handlers do not carry the Indoone app's Firebase UID. If exactly one
+    Webhook handlers do not carry the Sankalp app's Firebase UID. If exactly one
     account is connected, its stored owner can be resolved without another
     environment variable. Ambiguous integrations deliberately fail closed.
     """

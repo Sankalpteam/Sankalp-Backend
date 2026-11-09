@@ -1,4 +1,4 @@
-"""Grounding helpers for evidence-backed Indoone responses."""
+"""Grounding helpers for evidence-backed Sankalp responses."""
 
 from __future__ import annotations
 

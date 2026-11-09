@@ -24,7 +24,7 @@ def run(command: list[str]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Prepare, validate, train, evaluate, and optionally publish an Indoone model."
+        description="Prepare, validate, train, evaluate, and optionally publish an Sankalp model."
     )
     parser.add_argument("--steps", type=int, default=DEFAULT_TRAINING_STEPS)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)

@@ -138,7 +138,7 @@ def build_comparison_report(baseline_path: Path, candidate_path: Path) -> dict[s
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the repeatable Indoone core AI benchmark")
+    parser = argparse.ArgumentParser(description="Run the repeatable Sankalp core AI benchmark")
     parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
     parser.add_argument("--tokenizer", type=Path, default=DEFAULT_TOKENIZER)
     parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)

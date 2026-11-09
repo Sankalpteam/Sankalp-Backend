@@ -106,7 +106,7 @@ def assemble(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Assemble Indoone instruction data deterministically.")
+    parser = argparse.ArgumentParser(description="Assemble Sankalp instruction data deterministically.")
     parser.add_argument("--source", action="append", type=Path, dest="sources")
     parser.add_argument("--output", type=Path, default=Path("data/processed/instructions_train.jsonl"))
     parser.add_argument("--validation-output", type=Path, default=Path("data/processed/instructions_validation.jsonl"))

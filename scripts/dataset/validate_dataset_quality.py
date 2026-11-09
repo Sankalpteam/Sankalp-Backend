@@ -122,7 +122,7 @@ def validate_rows(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate Indoone training-data quality before training.")
+    parser = argparse.ArgumentParser(description="Validate Sankalp training-data quality before training.")
     parser.add_argument("--source", action="append", type=Path, dest="sources")
     parser.add_argument("--min-response-chars", type=int, default=DEFAULT_MIN_RESPONSE_CHARS)
     parser.add_argument("--max-short-response-rate", type=float, default=DEFAULT_MAX_SHORT_RESPONSE_RATE)

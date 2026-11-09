@@ -266,7 +266,7 @@ def run_behavioral_eval(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run Indoone local model behavioral evaluation")
+    parser = argparse.ArgumentParser(description="Run Sankalp local model behavioral evaluation")
     parser.add_argument("--cases", type=Path, default=DEFAULT_CASES)
     parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
     parser.add_argument("--tokenizer", type=Path, default=DEFAULT_TOKENIZER)

@@ -733,7 +733,7 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
         raise HTTPException(
             status_code=503,
             detail=(
-                "Indoone AI could not complete this request. "
+                "Sankalp could not complete this request. "
                 "Please try again in a moment."
             ),
         ) from exc

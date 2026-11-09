@@ -542,7 +542,7 @@ def run_self_training(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Safely fine-tune and promote the Indoone model from new trusted web knowledge."
+        description="Safely fine-tune and promote the Sankalp model from new trusted web knowledge."
     )
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
     parser.add_argument(

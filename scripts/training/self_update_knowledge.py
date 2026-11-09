@@ -14,7 +14,7 @@ from app.ai.local.self_update import collect_and_update
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Collect trusted internet feed updates into Indoone reference knowledge."
+        description="Collect trusted internet feed updates into Sankalp reference knowledge."
     )
     parser.add_argument(
         "--sources",

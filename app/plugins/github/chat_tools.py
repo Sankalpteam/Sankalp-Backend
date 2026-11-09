@@ -1,7 +1,7 @@
 """Model-assisted and deterministic read-only GitHub tools for chat.
 
 OAuth secrets remain server-side. Every tool call is scoped to the authenticated
-Indoone user and passes through the shared connector authorization policy.
+Sankalp user and passes through the shared connector authorization policy.
 """
 from __future__ import annotations
 
@@ -335,11 +335,11 @@ def _github_action(message: str, history: list[tuple[str, str]] | None) -> tuple
 def _safe_tool_error(result: ToolResult) -> str:
     message = result.output.casefold()
     if "not connected" in message:
-        return "GitHub is not connected to this Indoone account yet. Open Plugins, connect GitHub, then retry."
+        return "GitHub is not connected to this Sankalp account yet. Open Plugins, connect GitHub, then retry."
     if "scope does not allow" in message or "authorization has expired" in message:
         return "The saved GitHub authorization needs to be renewed. Open Plugins, choose GitHub → Reauthorize, then retry."
     if "authenticated user is required" in message:
-        return "Please sign in to Indoone again, then retry the GitHub request."
+        return "Please sign in to Sankalp again, then retry the GitHub request."
     return "I couldn't verify the live GitHub data right now. No GitHub changes were made; try again or reauthorize GitHub."
 
 
@@ -978,7 +978,7 @@ async def handle_github_chat_with_tools(
     if isinstance(request, str):
         return request
     if not user:
-        return "Please sign in to Indoone before accessing GitHub."
+        return "Please sign in to Sankalp before accessing GitHub."
 
     # The parser has already chosen the tool. It is executed HERE and its own
     # formatted answer is returned - the model is not asked to relay it.

@@ -34,7 +34,7 @@ class LocalAIEngine:
     def _load(self) -> None:
         if not self.checkpoint.exists() or not self.tokenizer_path.exists():
             self._load_error = (
-                "Indoone local model is not trained yet. Run "
+                "Sankalp local model is not trained yet. Run "
                 "python -m app.ai.train --corpus data/processed/train.txt "
                 "--output models/indoone-small"
             )
@@ -46,7 +46,7 @@ class LocalAIEngine:
             self.tokenizer = self._runtime.tokenizer
         except Exception as exc:
             self._runtime = None
-            self._load_error = f"failed to load Indoone model: {exc}"
+            self._load_error = f"failed to load Sankalp model: {exc}"
 
     @property
     def ready(self) -> bool:
@@ -72,7 +72,7 @@ class LocalAIEngine:
         if self._runtime is not None:
             return self._runtime._prompt_ids(prompt)
         if self.tokenizer is None:
-            raise RuntimeError(self._load_error or "Indoone local model is unavailable")
+            raise RuntimeError(self._load_error or "Sankalp local model is unavailable")
         stripped_prompt = prompt.strip()
         formatted_prompt = (
             stripped_prompt
@@ -97,10 +97,10 @@ class LocalAIEngine:
         """Generate only the assistant completion for a prepared prompt."""
         if not self.ready:
             raise RuntimeError(
-                self._load_error or "Indoone local model is unavailable"
+                self._load_error or "Sankalp local model is unavailable"
             )
         if self._runtime is None:
-            raise RuntimeError(self._load_error or "Indoone local model is unavailable")
+            raise RuntimeError(self._load_error or "Sankalp local model is unavailable")
         return self._runtime.generate(
             message,
             max_new_tokens=max_new_tokens,

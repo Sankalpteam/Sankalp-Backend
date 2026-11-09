@@ -1,1 +1,1 @@
-"""Zoho Mail integration plugin for Indoone."""
+"""Zoho Mail integration plugin for Sankalp."""

@@ -24,7 +24,7 @@ DEFAULT_PROMPTS = [
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run a small behavior evaluation against an Indoone checkpoint.")
+    parser = argparse.ArgumentParser(description="Run a small behavior evaluation against an Sankalp checkpoint.")
     parser.add_argument("--model", required=True, help="Path to indoone-small.pt")
     parser.add_argument("--tokenizer", required=True, help="Path to tokenizer.json")
     parser.add_argument("--prompts", help="Optional JSONL file containing {\"prompt\": \"...\"} records")

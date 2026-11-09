@@ -1,4 +1,4 @@
-"""Private GitHub Release asset storage helpers for Indoone model artifacts."""
+"""Private GitHub Release asset storage helpers for Sankalp model artifacts."""
 
 from __future__ import annotations
 

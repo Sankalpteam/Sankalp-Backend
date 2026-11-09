@@ -60,7 +60,7 @@ async def zoho_mail_callback(request: Request) -> HTMLResponse:
         cancel_zoho_mail_authorization(state)
         return HTMLResponse(
             "<!doctype html><html><body><h2>Zoho Mail connection was not completed</h2>"
-            "<p>You can return to Indoone and try again.</p></body></html>",
+            "<p>You can return to Sankalp and try again.</p></body></html>",
             status_code=400,
         )
 
@@ -79,8 +79,8 @@ async def zoho_mail_callback(request: Request) -> HTMLResponse:
     except RuntimeError as exc:
         raise provider_failure("zoho mail authorization", exc, status_code=503) from exc
     return HTMLResponse(
-        "<!doctype html><html><body><h2>Zoho Mail connected to Indoone</h2>"
-        "<p>Authorization finished successfully. Return to Indoone and check the connection status.</p>"
+        "<!doctype html><html><body><h2>Zoho Mail connected to Sankalp</h2>"
+        "<p>Authorization finished successfully. Return to Sankalp and check the connection status.</p>"
         "</body></html>",
         status_code=200,
     )

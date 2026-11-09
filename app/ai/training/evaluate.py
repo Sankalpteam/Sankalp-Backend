@@ -76,7 +76,7 @@ def evaluate_checkpoint(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate an Indoone local language model")
+    parser = argparse.ArgumentParser(description="Evaluate an Sankalp local language model")
     parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
     parser.add_argument("--tokenizer", type=Path, default=DEFAULT_TOKENIZER)
     parser.add_argument("--corpus", type=Path, required=True)

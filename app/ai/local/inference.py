@@ -22,7 +22,7 @@ MIN_GENERATED_TOKENS_BEFORE_EOS = 4
 DEFAULT_OUTPUT_TOKEN_RESERVE = 256
 
 class LocalModelRuntime:
-    """Load the trained Indoone local language model and generate model output."""
+    """Load the trained Sankalp local language model and generate model output."""
 
     def __init__(self, checkpoint_path: Path, tokenizer_path: Path) -> None:
         # Render's free instance has a fractional CPU allocation. Limit Torch

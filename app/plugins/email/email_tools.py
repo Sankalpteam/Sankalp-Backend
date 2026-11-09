@@ -200,7 +200,7 @@ def _sanitize_tool_error(exc: Exception) -> dict[str, str]:
     if "expired" in message or "reconnect" in message or "refresh token" in message:
         return {"code": "REAUTHORIZE_REQUIRED", "message": "Mailbox authorization has expired. Ask the user to reauthorize this mailbox in Plugins."}
     if "not connected" in message or "not connected for user" in message:
-        return {"code": "NOT_CONNECTED", "message": "This mailbox is not connected to the current Indoone account. Ask the user to connect it in Plugins."}
+        return {"code": "NOT_CONNECTED", "message": "This mailbox is not connected to the current Sankalp account. Ask the user to connect it in Plugins."}
     logger.warning("email tool failed", extra={"exception_type": type(exc).__name__})
     return {"code": "EMAIL_OPERATION_FAILED", "message": "The email action could not be completed. Be honest about the failure and do not claim success."}
 
@@ -215,10 +215,10 @@ def _resolve_provider(user_id: str, requested: object) -> tuple[str | None, dict
         return None, {"code": "INVALID_PROVIDER", "message": "The selected email provider is not supported."}
     if explicit:
         if explicit not in connected:
-            return None, {"code": "NOT_CONNECTED", "message": f"{_MAIL_LABEL[explicit]} is not connected to this Indoone account. Ask the user to connect it in Plugins."}
+            return None, {"code": "NOT_CONNECTED", "message": f"{_MAIL_LABEL[explicit]} is not connected to this Sankalp account. Ask the user to connect it in Plugins."}
         return explicit, None
     if not connected:
-        return None, {"code": "NOT_CONNECTED", "message": "No email account is connected to this Indoone account. Ask the user to connect Email or Zoho Mail from Plugins."}
+        return None, {"code": "NOT_CONNECTED", "message": "No email account is connected to this Sankalp account. Ask the user to connect Email or Zoho Mail from Plugins."}
     return next(iter(connected)), None
 
 
@@ -720,7 +720,7 @@ async def handle_email_chat_with_tools(
         tool_declarations=EMAIL_TOOL_DECLARATIONS,
         execute_tool=call_tool,
         extra_system_instruction=(
-            "You are operating email tools inside the authenticated Indoone account. For questions or requests about mail, "
+            "You are operating email tools inside the authenticated Sankalp account. For questions or requests about mail, "
             "use the available tools to obtain live data instead of guessing or relying on chat history. Use list_recent_emails "
             "with limit 200 unless the user asks for fewer, and use count_inbox_emails for total Inbox counts; the number "
             "of listed messages is not necessarily the total Inbox count. Never invent messages, "

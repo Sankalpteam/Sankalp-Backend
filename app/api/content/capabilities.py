@@ -220,12 +220,12 @@ async def integration_callback_browser(
         await exchange_oauth_code(integration_id, state, code)
     except ValueError:
         return HTMLResponse(
-            "<html><body><h2>Indoone connection failed</h2><p>The authorization could not be completed.</p><p>Return to Indoone and try again.</p></body></html>",
+            "<html><body><h2>Sankalp connection failed</h2><p>The authorization could not be completed.</p><p>Return to Sankalp and try again.</p></body></html>",
             status_code=400,
         )
     except (RuntimeError, httpx.HTTPError):
         return HTMLResponse(
-            "<html><body><h2>Indoone connection failed</h2><p>The authorization service could not complete the connection.</p><p>Return to Indoone and try again.</p></body></html>",
+            "<html><body><h2>Sankalp connection failed</h2><p>The authorization service could not complete the connection.</p><p>Return to Sankalp and try again.</p></body></html>",
             status_code=502,
         )
     integration_name = {
@@ -234,7 +234,7 @@ async def integration_callback_browser(
         "slack": "Slack",
     }.get(integration_id.strip().lower(), "Service")
     return HTMLResponse(
-        f"<html><body><h2>{integration_name} connected to Indoone</h2><p>You can return to the Indoone app now.</p></body></html>",
+        f"<html><body><h2>{integration_name} connected to Sankalp</h2><p>You can return to the Sankalp app now.</p></body></html>",
         status_code=200,
     )
 
