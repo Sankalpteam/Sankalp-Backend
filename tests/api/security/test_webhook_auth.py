@@ -92,7 +92,7 @@ def test_github_browser_oauth_callback_is_public_but_exchanges_state(monkeypatch
         )
 
     assert response.status_code == 200
-    assert "GitHub connected to Indoone" in response.text
+    assert "GitHub connected to Sankalp" in response.text
     assert "bearer authentication required" not in response.text.lower()
     assert captured == {
         "integration_id": "github",

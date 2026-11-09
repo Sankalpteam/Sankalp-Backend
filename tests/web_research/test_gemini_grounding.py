@@ -19,7 +19,7 @@ def test_model_selected_search_is_executed_and_sources_are_returned(monkeypatch)
         "functionCall": {
             "name": "search_web",
             "id": "search-1",
-            "args": {"query": "latest Indoone update"},
+            "args": {"query": "latest Sankalp update"},
         }
     }])
     final = _response([{"text": "The official update is available now."}])
@@ -54,7 +54,7 @@ def test_model_selected_search_is_executed_and_sources_are_returned(monkeypatch)
             return FakeResponse(final)
 
     async def fake_execute(call):
-        assert call.query == "latest Indoone update"
+        assert call.query == "latest Sankalp update"
         return SearchWebToolResult(
             status="ok",
             results=(ResearchResult("Official update", "https://example.com/update", "The official update is available now."),),

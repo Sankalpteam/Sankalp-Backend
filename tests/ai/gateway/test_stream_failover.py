@@ -1,6 +1,6 @@
 """A stalled or rejected primary hands the answer to the secondary.
 
-The production symptom was "Indoone AI is taking too long to respond": Gemini accepted the
+The production symptom was "Sankalp is taking too long to respond": Gemini accepted the
 connection, then either stalled or answered 429/5xx, and nothing took over. The user waited
 out their own client timeout.
 

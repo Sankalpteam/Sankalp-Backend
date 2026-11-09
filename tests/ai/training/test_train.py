@@ -91,7 +91,7 @@ def test_tokenizer_cache_reuses_matching_source_and_interrupted_run(tmp_path: Pa
 
 def test_train_reuses_tokenizer_cache_on_same_training_source(tmp_path: Path, monkeypatch) -> None:
     corpus = (
-        "Indoone trains a local model with curated data.\n\n"
+        "Sankalp trains a local model with curated data.\n\n"
         "The assistant should be clear and honest.\n\n"
         "Training data is validated before model training.\n\n"
     )
@@ -131,7 +131,7 @@ def test_train_reuses_tokenizer_cache_on_same_training_source(tmp_path: Path, mo
 
 def test_train_writes_checkpoint_and_history(tmp_path: Path) -> None:
     corpus = (
-        "Indoone builds local AI for useful assistance.\n\n"
+        "Sankalp builds local AI for useful assistance.\n\n"
         "The assistant should be clear, honest, and respectful.\n\n"
         "The model learns from curated text and is evaluated for quality and safety.\n\n"
         "Authorized tools may be used only when the user has permission.\n"

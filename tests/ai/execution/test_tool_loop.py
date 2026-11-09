@@ -61,14 +61,14 @@ async def test_dispatch_routes_search_web(monkeypatch) -> None:
     from app.web_research.tools import SearchWebToolResult
 
     async def fake_search(call):
-        assert call.query == "latest Indoone news"
+        assert call.query == "latest Sankalp news"
         return SearchWebToolResult(
             status="ok", results=(ResearchResult(title="T", url="http://x", snippet="s"),)
         )
 
     monkeypatch.setattr("app.web_research.tools.execute_search_web_call", fake_search)
 
-    result = await tool_loop.dispatch_tool("u1", "c1", "search_web", {"query": "latest Indoone news"})
+    result = await tool_loop.dispatch_tool("u1", "c1", "search_web", {"query": "latest Sankalp news"})
     assert result["ok"] is True
     assert result["result"]["results"][0]["title"] == "T"
 

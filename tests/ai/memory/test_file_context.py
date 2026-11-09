@@ -10,9 +10,9 @@ OWNER = "user-one"
 
 def test_saved_file_can_be_read_back(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(file_context, "FILE_ROOT", tmp_path)
-    result = file_context.save_text_file("notes.txt", "hello Indoone".encode(), user_id=OWNER)
+    result = file_context.save_text_file("notes.txt", "hello Sankalp".encode(), user_id=OWNER)
 
-    assert file_context.read_text_file(str(result["file_id"]), user_id=OWNER) == "hello Indoone"
+    assert file_context.read_text_file(str(result["file_id"]), user_id=OWNER) == "hello Sankalp"
 
 
 def test_invalid_file_id_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

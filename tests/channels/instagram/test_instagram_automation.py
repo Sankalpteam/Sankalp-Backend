@@ -7,7 +7,7 @@ def test_plan_comment_rule() -> None:
     payload = {
         "event_id": "e1",
         "entries": [
-            {"changes": [{"field": "comments", "value": {"id": "c1", "text": "Hello Indoone"}}]}
+            {"changes": [{"field": "comments", "value": {"id": "c1", "text": "Hello Sankalp"}}]}
         ],
     }
     rules = [

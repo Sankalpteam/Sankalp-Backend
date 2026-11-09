@@ -160,7 +160,7 @@ async def test_repository_file_request_routes_to_file_reader(monkeypatch) -> Non
             }), safe=True)
         return ToolResult(name=name, output=json.dumps({
             "repository": "indooneteam/indoone", "path": "README.md",
-            "content": "# Indoone\\nRead-only GitHub integration", "truncated": False,
+            "content": "# Sankalp\\nRead-only GitHub integration", "truncated": False,
         }), safe=True)
 
     monkeypatch.setattr(chat_tools, "run_tool_async", fake_run_tool_async)
@@ -168,7 +168,7 @@ async def test_repository_file_request_routes_to_file_reader(monkeypatch) -> Non
         "user-123", "Read README.md in my GitHub repo indoone"
     )
     assert reply is not None
-    assert "# Indoone" in reply
+    assert "# Sankalp" in reply
     assert any(name == "github_read_repository_file" and data.get("path") == "README.md" for name, data in calls)
 
 
@@ -189,8 +189,8 @@ async def test_file_request_without_path_asks_for_clarification(monkeypatch) -> 
     [
         ("GitHub repo holage en ide", ""),
         ("nanna GitHub repo holage en ide", ""),
-        ("Indoone repo holage en ide", "Indoone"),
-        ("Indoone repo olage en ide", "Indoone"),
+        ("Sankalp repo holage en ide", "Sankalp"),
+        ("Sankalp repo olage en ide", "Sankalp"),
     ],
 )
 def test_romanized_kannada_repository_hint_ignores_intent_words(
@@ -204,7 +204,7 @@ def test_romanized_kannada_repository_hint_ignores_intent_words(
     [
         ("GitHub repo holage en ide", ""),
         ("nanna GitHub repo holage en ide", ""),
-        ("Indoone repo holage en ide", "Indoone"),
+        ("Sankalp repo holage en ide", "Sankalp"),
     ],
 )
 def test_romanized_kannada_repo_contents_request_uses_github_reader(
@@ -219,10 +219,10 @@ def test_romanized_kannada_repo_contents_request_uses_github_reader(
 @pytest.mark.parametrize(
     ("message", "expected_hint"),
     [
-        ("Nanna Indoone repo holage en ede", "Indoone"),
-        ("Nanna Indoone repo olage en ide", "Indoone"),
-        ("Indoone repository holagade en ide", "Indoone"),
-        ("Indoone repo en ede", "Indoone"),
+        ("Nanna Sankalp repo holage en ede", "Sankalp"),
+        ("Nanna Sankalp repo olage en ide", "Sankalp"),
+        ("Sankalp repository holagade en ide", "Sankalp"),
+        ("Sankalp repo en ede", "Sankalp"),
     ],
 )
 def test_romanized_kannada_repository_contents_variants_are_routed(
@@ -238,9 +238,9 @@ def test_romanized_kannada_repository_contents_variants_are_routed(
     ("message", "expected_hint"),
     [
         ("ನನ್ನ GitHub ರೆಪೊಸಿಟರಿಯ ಒಳಗಿರುವ ಫೈಲ್‌ಗಳ ಪಟ್ಟಿ ತೋರಿಸು", ""),
-        ("ನನ್ನ Indoone ರೆಪೊಸಿಟರಿಯ ಒಳಗಿರುವ ಫೈಲ್‌ಗಳ ಪಟ್ಟಿ ತೋರಿಸು", "Indoone"),
-        ("GitHub Indoone repository ಒಳಗೆ ಏನೆಲ್ಲಾ ಇದೆ ತೋರಿಸು", "Indoone"),
-        ("ನನ್ನ Indoone ರೆಪೊಸಿಟರಿಯಲ್ಲಿ ಏನೇನು ಫೈಲ್‌ಗಳಿವೆ", "Indoone"),
+        ("ನನ್ನ Sankalp ರೆಪೊಸಿಟರಿಯ ಒಳಗಿರುವ ಫೈಲ್‌ಗಳ ಪಟ್ಟಿ ತೋರಿಸು", "Sankalp"),
+        ("GitHub Sankalp repository ಒಳಗೆ ಏನೆಲ್ಲಾ ಇದೆ ತೋರಿಸು", "Sankalp"),
+        ("ನನ್ನ Sankalp ರೆಪೊಸಿಟರಿಯಲ್ಲಿ ಏನೇನು ಫೈಲ್‌ಗಳಿವೆ", "Sankalp"),
     ],
 )
 def test_kannada_repository_contents_requests_route_to_github_reader(
@@ -273,7 +273,7 @@ async def test_repository_hint_prefers_exact_name_over_substring(monkeypatch) ->
     monkeypatch.setattr(chat_tools, "run_tool_async", fake_run_tool_async)
     result = await chat_tools._execute_github_tool(
         "user-123", "github_list_repository_contents",
-        {"repository_hint": "Indoone", "path": ""},
+        {"repository_hint": "Sankalp", "path": ""},
     )
 
     assert result["ok"] is True

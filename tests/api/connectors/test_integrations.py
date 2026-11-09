@@ -173,5 +173,5 @@ def test_github_browser_oauth_callback_shows_github_success(monkeypatch) -> None
         )
 
     assert response.status_code == 200
-    assert "GitHub connected to Indoone" in response.text
-    assert "Zoho Mail connected to Indoone" not in response.text
+    assert "GitHub connected to Sankalp" in response.text
+    assert "Zoho Mail connected to Sankalp" not in response.text

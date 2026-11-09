@@ -8,7 +8,7 @@ from app.ai.local.tokenizer import BPETokenizer
 
 
 def test_evaluate_checkpoint_returns_loss_and_perplexity(tmp_path: Path) -> None:
-    corpus = "Indoone builds local AI. " * 20
+    corpus = "Sankalp builds local AI. " * 20
     tokenizer = BPETokenizer.train(corpus, vocab_size=64, min_frequency=1)
     model = IndooneTransformer(
         vocab_size=tokenizer.vocab_size,

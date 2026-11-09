@@ -13,7 +13,7 @@ from app.capabilities.media.document_extract import DOCX_MIME, MAX_PDF_PAGES, PD
 def test_extract_docx_text() -> None:
     buffer = io.BytesIO()
     document = Document()
-    document.add_paragraph("Indoone document understanding")
+    document.add_paragraph("Sankalp document understanding")
     document.add_paragraph("Kannada ಕನ್ನಡ and Hindi हिंदी")
     document.save(buffer)
 
@@ -21,7 +21,7 @@ def test_extract_docx_text() -> None:
 
     assert result.page_count is None
     assert result.paragraphs == 2
-    assert "Indoone document understanding" in result.text
+    assert "Sankalp document understanding" in result.text
     assert "ಕನ್ನಡ" in result.text
     assert result.truncated is False
     assert result.tables == []

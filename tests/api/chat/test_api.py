@@ -127,11 +127,11 @@ def test_chat_returns_ai_reply(monkeypatch) -> None:
     monkeypatch.setenv("INDOONE_AUTH_SECRET", "x" * 32)
     monkeypatch.setattr("app.api.chat.chat.generate_reply", fake_reply)
 
-    response = client.post("/api/chat", json={"message": "Hello Indoone"}, headers=_auth_headers())
+    response = client.post("/api/chat", json={"message": "Hello Sankalp"}, headers=_auth_headers())
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["reply"] == "test reply: Hello Indoone"
+    assert payload["reply"] == "test reply: Hello Sankalp"
     assert payload["sources"] == []
     assert payload["conversation_id"]
     assert response.headers["X-Request-ID"]
@@ -158,7 +158,7 @@ def test_chat_does_not_leak_the_provider_error_to_the_client(monkeypatch, caplog
     with caplog.at_level(logging.ERROR, logger="indoone.chat"):
         response = client.post(
             "/api/chat",
-            json={"message": "Hello Indoone"},
+            json={"message": "Hello Sankalp"},
             headers=_auth_headers(),
         )
 
@@ -169,7 +169,7 @@ def test_chat_does_not_leak_the_provider_error_to_the_client(monkeypatch, caplog
     assert payload["code"] == "HTTP_503"
     message = payload["message"]
     assert message == (
-        "Indoone AI could not complete this request. Please try again in a moment."
+        "Sankalp could not complete this request. Please try again in a moment."
     )
     assert "Gemini" not in message
     assert "API key" not in message

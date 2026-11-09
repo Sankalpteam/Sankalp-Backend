@@ -35,7 +35,7 @@ def test_whatsapp_incoming_message_replies_with_indoon_ai(tmp_path, monkeypatch)
     async def fake_generate_reply(
         message: str, history=None, document_context: str = "", **kwargs
     ) -> str:
-        assert message == "Hello Indoone"
+        assert message == "Hello Sankalp"
         assert history == []
         return "Hello! How can I help you?"
 
@@ -51,7 +51,7 @@ def test_whatsapp_incoming_message_replies_with_indoon_ai(tmp_path, monkeypatch)
         "id": "wamid.test-1",
         "from": "919999999999",
         "type": "text",
-        "text": "Hello Indoone",
+        "text": "Hello Sankalp",
     }
 
     assert asyncio.run(whatsapp_ai_reply.process_whatsapp_message(message)) is True
@@ -79,7 +79,7 @@ def test_instagram_message_replies_with_indoon_ai(tmp_path, monkeypatch) -> None
     ) -> str:
         assert message == "Hi from Instagram"
         assert history == []
-        return "Hi! Thanks for messaging Indoone."
+        return "Hi! Thanks for messaging Sankalp."
 
     async def fake_send(user_id: str, recipient_id: str, text: str, approved: bool = False) -> dict[str, object]:
         sent.append((user_id, recipient_id, text))
@@ -106,7 +106,7 @@ def test_instagram_message_replies_with_indoon_ai(tmp_path, monkeypatch) -> None
         (
             "indoone-user-1",
             "ig-customer-1",
-            "Hi! Thanks for messaging Indoone.",
+            "Hi! Thanks for messaging Sankalp.",
         )
     ]
 
@@ -249,7 +249,7 @@ def test_telegram_reply_uses_existing_bot_token_without_owner_uid(tmp_path, monk
 # The app and the channels were two different assistants sharing a model.
 
 
-def _message(text: str = "Hello Indoone") -> dict:
+def _message(text: str = "Hello Sankalp") -> dict:
     """A webhook message after parsing: the text is already flattened to a string."""
 
     return {
@@ -290,7 +290,7 @@ def test_a_channel_message_goes_through_the_tool_loop(tmp_path, monkeypatch) -> 
 
     assert asyncio.run(whatsapp_ai_reply.process_whatsapp_message(_message())) is True
 
-    assert calls and calls[0]["message"] == "Hello Indoone"
+    assert calls and calls[0]["message"] == "Hello Sankalp"
     assert sent == [("919999999999", "Looped answer")]
 
 

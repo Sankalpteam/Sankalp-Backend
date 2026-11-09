@@ -8,7 +8,7 @@ from app.ai.training.train import train
 
 
 def test_bpe_tokenizer_round_trip(tmp_path) -> None:
-    text = "Hello Indoone! Hello Indoone!"
+    text = "Hello Sankalp! Hello Sankalp!"
     tokenizer = BPETokenizer.train(text, vocab_size=64, min_frequency=2)
     ids = tokenizer.encode(text)
     assert tokenizer.decode(ids) == text
@@ -23,7 +23,7 @@ def test_bpe_tokenizer_round_trip(tmp_path) -> None:
 
 
 def test_bpe_special_tokens_round_trip() -> None:
-    tokenizer = BPETokenizer.train("Hello Indoone", vocab_size=64, min_frequency=1)
+    tokenizer = BPETokenizer.train("Hello Sankalp", vocab_size=64, min_frequency=1)
     ids = tokenizer.encode("Hello", add_special_tokens=True)
     assert ids[0] == tokenizer.stoi["<bos>"]
     assert ids[-1] == tokenizer.stoi["<eos>"]
@@ -31,7 +31,7 @@ def test_bpe_special_tokens_round_trip() -> None:
 
 
 def test_instruction_prompt_uses_training_format(tmp_path) -> None:
-    corpus = ("<instruction>\nSay hello\n</instruction>\n<response>\nHello from Indoone\n</response>" * 4)
+    corpus = ("<instruction>\nSay hello\n</instruction>\n<response>\nHello from Sankalp\n</response>" * 4)
     tokenizer = BPETokenizer.train(corpus, vocab_size=64, min_frequency=1)
     runtime = object.__new__(LocalModelRuntime)
     runtime.tokenizer = tokenizer
@@ -43,9 +43,9 @@ def test_instruction_prompt_uses_training_format(tmp_path) -> None:
 
 def test_clean_completion_strips_training_markers() -> None:
     cleaned = LocalModelRuntime._clean_completion(
-        "Hello from Indoone</response>\n\n<instruction>Next task"
+        "Hello from Sankalp</response>\n\n<instruction>Next task"
     )
-    assert cleaned == "Hello from Indoone"
+    assert cleaned == "Hello from Sankalp"
 
 
 def test_transformer_forward_shapes_and_config() -> None:
@@ -80,8 +80,8 @@ def test_transformer_rejects_invalid_inputs() -> None:
 
 
 def test_training_pipeline_writes_checkpoint_and_history(tmp_path) -> None:
-    corpus = ("Indoone builds its own AI training pipeline. " * 20).strip()
-    validation = ("Indoone evaluates its own model. " * 10).strip()
+    corpus = ("Sankalp builds its own AI training pipeline. " * 20).strip()
+    validation = ("Sankalp evaluates its own model. " * 10).strip()
     corpus_path = tmp_path / "train.txt"
     validation_path = tmp_path / "validation.txt"
     output_dir = tmp_path / "model"
@@ -107,7 +107,7 @@ def test_training_pipeline_writes_checkpoint_and_history(tmp_path) -> None:
 
 
 def test_trained_checkpoint_generates_locally(tmp_path) -> None:
-    corpus = ("Indoone builds its own AI training pipeline. " * 30).strip()
+    corpus = ("Sankalp builds its own AI training pipeline. " * 30).strip()
     corpus_path = tmp_path / "train.txt"
     output_dir = tmp_path / "model"
     corpus_path.write_text(corpus, encoding="utf-8")
@@ -125,7 +125,7 @@ def test_trained_checkpoint_generates_locally(tmp_path) -> None:
         output_dir / "indoone-small.pt",
         output_dir / "tokenizer.json",
     )
-    generated = runtime.generate("Indoone", max_new_tokens=8, temperature=0.8)
+    generated = runtime.generate("Sankalp", max_new_tokens=8, temperature=0.8)
 
     assert generated.strip()
     assert isinstance(generated, str)

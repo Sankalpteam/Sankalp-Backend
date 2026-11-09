@@ -8,7 +8,7 @@ from app.ai.memory.knowledge import KnowledgeDocument, LocalKnowledgeBase, build
 def test_local_knowledge_search_ranks_relevant_documents() -> None:
     knowledge = LocalKnowledgeBase(
         [
-            KnowledgeDocument("ai", "Indoone AI", "local model and training pipeline"),
+            KnowledgeDocument("ai", "Sankalp", "local model and training pipeline"),
             KnowledgeDocument("memory", "Conversation Memory", "recent messages provide context"),
         ]
     )

@@ -186,7 +186,7 @@ def test_vibe_websocket_rejects_legacy_live_model_for_extended_thinking(
             event = websocket.receive_json()
             assert event == {
                 "type": "error",
-                "detail": "Indoone Vibe requires GEMINI_LIVE_MODEL=gemini-3.8-live-extended-thinking",
+                "detail": "Sankalp Vibe requires GEMINI_LIVE_MODEL=gemini-3.8-live-extended-thinking",
             }
 
 
@@ -253,10 +253,10 @@ def test_vibe_identity_uses_product_name_without_forcing_a_fixed_phrase() -> Non
     setup = vibe_api._setup_message("models/gemini-live-test", "Aoede")["setup"]
     instruction = setup["systemInstruction"]["parts"][0]["text"]
 
-    assert "Indoone Vibe" in instruction
-    assert "Do not call the live voice experience only 'Indoone AI'." in instruction
-    assert "Do not force the fixed phrase 'I am Indoone Vibe' as a standalone reply" in instruction
-    assert "live voice experience in the Indoone app" in instruction
+    assert "Sankalp Vibe" in instruction
+    assert "Do not call the live voice experience only 'Sankalp'." in instruction
+    assert "Do not force the fixed phrase 'I am Sankalp Vibe' as a standalone reply" in instruction
+    assert "live voice experience in the Sankalp app" in instruction
 
 
 def _instruction(setup: dict[str, object]) -> str:

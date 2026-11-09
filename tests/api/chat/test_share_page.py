@@ -44,12 +44,12 @@ def test_the_page_renders_the_thread(shared: str) -> None:
     assert "Branch cleanup" in body
     # Both sides of the conversation.
     assert "show me a python snippet" in body
-    assert "Indoone AI" in body
+    assert "Sankalp" in body
     # The banner and its button.
     assert "Shared conversation • Read only" in body
-    assert "Try Indoone" in body
+    assert "Try Sankalp" in body
     # Branding sits above the thread title.
-    assert '<div class="brand">Indoone AI</div>' in body
+    assert '<div class="brand">Sankalp</div>' in body
 
 
 def test_code_and_bold_are_rendered_cleanly(shared: str) -> None:
