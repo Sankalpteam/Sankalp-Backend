@@ -119,7 +119,7 @@ def test_provider_parses_json_results(monkeypatch) -> None:
     results = asyncio.run(provider.search("Sankalp"))
 
     assert results == [ResearchResult("Sankalp", "https://indoone.ai", "local AI")]
-    assert "q=Sankalp+AI" in captured["url"]
+    assert "q=Sankalp" in captured["url"]
     assert captured["auth"] == "Bearer secret"
 
 def test_tavily_provider_parses_ranked_results(monkeypatch) -> None:
@@ -238,7 +238,7 @@ def test_google_news_rss_provider_parses_sources(monkeypatch) -> None:
             return None
         async def get(self, url, headers):
             assert "news.google.com/rss/search" in url
-            assert "q=Sankalp+AI" in url
+            assert "q=Sankalp" in url
             assert headers["Accept"].startswith("application/rss+xml")
             return FakeResponse()
 

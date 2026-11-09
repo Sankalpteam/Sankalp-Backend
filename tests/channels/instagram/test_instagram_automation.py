@@ -11,7 +11,7 @@ def test_plan_comment_rule() -> None:
         ],
     }
     rules = [
-        {"trigger": "comment", "action": "reply_comment", "keyword": "indoone", "response": "Thanks!"}
+        {"trigger": "comment", "action": "reply_comment", "keyword": "sankalp", "response": "Thanks!"}
     ]
     result = plan_automation(payload, rules)
     assert result["dry_run"] is True

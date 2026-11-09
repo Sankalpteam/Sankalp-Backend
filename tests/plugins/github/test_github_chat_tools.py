@@ -156,7 +156,7 @@ async def test_repository_file_request_routes_to_file_reader(monkeypatch) -> Non
         calls.append((name, data))
         if name == "github_list_repositories":
             return ToolResult(name=name, output=json.dumps({
-                "repositories": [{"full_name": "indooneteam/indoone", "name": "indoone"}]
+                "repositories": [{"full_name": "Sankalpteam/sankalp", "name": "sankalp"}]
             }), safe=True)
         return ToolResult(name=name, output=json.dumps({
             "repository": "indooneteam/indoone", "path": "README.md",
@@ -261,8 +261,8 @@ async def test_repository_hint_prefers_exact_name_over_substring(monkeypatch) ->
         if name == "github_list_repositories":
             return ToolResult(name=name, output=json.dumps({
                 "repositories": [
-                    {"full_name": "indooneteam/Indoone-Backend", "name": "Indoone-Backend"},
-                    {"full_name": "indooneteam/indoone", "name": "indoone"},
+                    {"full_name": "Sankalpteam/Sankalp-Backend", "name": "Sankalp-Backend"},
+                    {"full_name": "Sankalpteam/sankalp", "name": "sankalp"},
                 ]
             }), safe=True)
         return ToolResult(name=name, output=json.dumps({
@@ -277,8 +277,8 @@ async def test_repository_hint_prefers_exact_name_over_substring(monkeypatch) ->
     )
 
     assert result["ok"] is True
-    assert result["result"]["repository"] == "indooneteam/indoone"
+    assert result["result"]["repository"] == "Sankalpteam/sankalp"
     assert any(
-        name == "github_list_repository_contents" and data.get("repository") == "indooneteam/indoone"
+        name == "github_list_repository_contents" and data.get("repository") == "Sankalpteam/sankalp"
         for name, data in calls
     )

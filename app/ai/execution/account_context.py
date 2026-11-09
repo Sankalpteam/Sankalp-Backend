@@ -32,7 +32,7 @@ _REFUSAL_MARKERS = (
     "do not have access",
     "can't access",
     "cannot access",
-    "not connected to this indoone account",
+    "not connected to this sankalp account",
     "connect it from plugins",
     "connect it in plugins",
 )
