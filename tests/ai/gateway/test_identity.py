@@ -8,6 +8,7 @@ to name the product, and it has to stop naming the one it replaced.
 from pathlib import Path
 
 from app.ai.gateway.ai_rules import ANSWER_SYSTEM_INSTRUCTION, TOOL_SYSTEM_INSTRUCTION
+from app.ai.gateway.company_profile import APP_SITE, COMPANY_INSTRUCTION, COMPANY_SITE
 
 VOICE_SOURCE = Path(__file__).resolve().parents[3] / "app" / "api" / "voice" / "vibe.py"
 
@@ -39,3 +40,14 @@ def test_the_identity_is_not_left_to_the_model() -> None:
     # The old instruction said "say Indoone AI". The new one names Sankalp and says nothing
     # about an AI suffix, which is the naming decision: the product is Sankalp.
     assert "Sankalp AI" not in ANSWER_SYSTEM_INSTRUCTION
+
+
+def test_the_company_behind_the_app_is_named() -> None:
+    # "who makes this" has an answer, and it is not left to the model's imagination.
+    assert "built by Indo Workspace" in ANSWER_SYSTEM_INSTRUCTION
+    assert COMPANY_SITE in ANSWER_SYSTEM_INSTRUCTION
+    assert APP_SITE in ANSWER_SYSTEM_INSTRUCTION
+
+
+def test_the_company_block_forbids_inventing_details() -> None:
+    assert "Never invent a date, a number, an address or a price" in COMPANY_INSTRUCTION
