@@ -93,6 +93,7 @@ def test_cors_allows_the_projects_own_web_origin_by_default(monkeypatch) -> None
     assert allowed_origins() == [
         "https://indooneteam.github.io",
         "https://indoone.indoworkspace.in",
+        "https://sankalp.indoworkspace.in",
     ]
 
     app = FastAPI()
@@ -116,6 +117,7 @@ def test_configured_origins_are_added_to_the_web_origin(monkeypatch) -> None:
     assert allowed_origins() == [
         "https://indooneteam.github.io",
         "https://indoone.indoworkspace.in",
+        "https://sankalp.indoworkspace.in",
         "https://app.example.com",
     ]
 
@@ -143,7 +145,7 @@ def test_the_web_origin_is_allowed_even_when_another_is_configured(monkeypatch) 
 
 
 def test_the_indoone_subdomain_is_allowed() -> None:
-    """The web app lives at indoone.indoworkspace.in.
+    """The web app used to live at indoone.indoworkspace.in and still does while it moves.
 
     A browser sends the origin it was loaded from. If that origin is not in this list the
     request is refused before it is sent, and the site looks like the backend is down - so the
@@ -163,3 +165,13 @@ def test_the_subdomain_gets_a_cors_header(monkeypatch) -> None:
     response = TestClient(app).get("/", headers={"Origin": "https://indoone.indoworkspace.in"})
 
     assert response.headers.get("access-control-allow-origin") == "https://indoone.indoworkspace.in"
+
+
+def test_the_new_subdomain_is_allowed_before_the_dns_record_exists() -> None:
+    """The site moves to sankalp.indoworkspace.in.
+
+    A browser sends the origin it was loaded from, so the new address has to be allowed
+    before the record points at it - otherwise the first person to open the new address gets
+    every request refused, which looks exactly like the backend being down.
+    """
+    assert "https://sankalp.indoworkspace.in" in allowed_origins()

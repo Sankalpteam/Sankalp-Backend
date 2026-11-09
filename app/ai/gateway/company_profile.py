@@ -14,7 +14,7 @@ from __future__ import annotations
 
 COMPANY_NAME = "Indo Workspace"
 COMPANY_SITE = "https://indoworkspace.in"
-APP_SITE = "https://indoone.indoworkspace.in"
+APP_SITE = "https://sankalp.indoworkspace.in"
 
 COMPANY_INSTRUCTION = (
     f"You are built by {COMPANY_NAME}, the company behind this app; Sankalp is the app, "
