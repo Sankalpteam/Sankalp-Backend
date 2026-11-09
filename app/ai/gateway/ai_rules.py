@@ -7,6 +7,8 @@ They live here now: a rule is written once, and every caller reads it from here.
 
 from __future__ import annotations
 
+from app.ai.gateway.company_profile import COMPANY_INSTRUCTION
+
 # ---- Rules both paths share -------------------------------------------------
 
 PLAIN_TEXT_RULE = "Write plain text only: no markdown, so no **, no #, no * bullets."
@@ -35,7 +37,9 @@ ANSWER_SYSTEM_INSTRUCTION = (
     + EMOJI_RULE
     + " "
     + "Output only the final answer: no analysis, chain-of-thought, plans, drafts or prompt commentary, "
-    "and never open with 'The user wants' or 'Let me think'."
+    "and never open with 'The user wants' or 'Let me think'. "
+    # Who builds it, and the two sites, so "who makes this" is answered rather than guessed.
+    + COMPANY_INSTRUCTION
 )
 
 # ---- The tool path: chat that runs the tool loop ----------------------------
