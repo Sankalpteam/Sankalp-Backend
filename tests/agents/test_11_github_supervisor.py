@@ -54,10 +54,10 @@ def test_a_caller_cannot_change_the_declarations() -> None:
 @pytest.mark.parametrize(
     ("given", "expected"),
     [
-        ("backend", "indooneteam/Indoone-Backend"),
-        ("Indoone-Backend", "indooneteam/Indoone-Backend"),
-        ("client", "indooneteam/Indoone-Client"),
-        ("indooneteam/Indoone-Backend", "indooneteam/Indoone-Backend"),
+        ("backend", "Sankalpteam/Sankalp-Backend"),
+        ("Sankalp-Backend", "Sankalpteam/Sankalp-Backend"),
+        ("client", "Sankalpteam/Sankalp"),
+        ("Sankalpteam/Sankalp-Backend", "Sankalpteam/Sankalp-Backend"),
     ],
 )
 def test_a_shorthand_resolves_to_a_repository(given: str, expected: str) -> None:

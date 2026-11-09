@@ -45,12 +45,12 @@ async def test_list_branches_runs_through_the_supervisor(monkeypatch) -> None:
     monkeypatch.setattr(supervisor_module, "_default_executor", lambda user_id="": fake_call)
 
     result = await tool_loop.dispatch_tool(
-        "u", "c", "github_list_branches", {"repository": "indooneteam/Indoone-Backend"}
+        "u", "c", "github_list_branches", {"repository": "Sankalpteam/Sankalp-Backend"}
     )
 
     assert result["ok"] is True
     # The argument names were translated to the supervisor's own.
-    assert seen == [("github_list_branches", {"repo": "indooneteam/Indoone-Backend"})]
+    assert seen == [("github_list_branches", {"repo": "Sankalpteam/Sankalp-Backend"})]
     assert result["sanitized_text"]
 
 

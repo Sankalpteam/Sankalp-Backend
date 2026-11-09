@@ -12,7 +12,7 @@ from app.ai.language.language_detection import SCRIPT_RANGES
 
 DEFAULT_TIMEOUT_SECONDS = 6.0
 MAX_SUMMARY_CHARS = 2_500
-DEFAULT_USER_AGENT = "Sankalp/1.0 (https://github.com/indooneteam/Indoone-Backend)"
+DEFAULT_USER_AGENT = "Sankalp/1.0 (https://github.com/Sankalpteam/Sankalp-Backend)"
 
 
 @dataclass(frozen=True)

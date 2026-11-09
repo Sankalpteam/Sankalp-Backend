@@ -38,13 +38,18 @@ MAX_DIFF_CHARS = 10_000
 
 # Shorthands people type. A resolved name is still validated - this only saves the model
 # from having to guess, and a wrong guess is the thing that produces 404s.
+# The repositories were renamed with the product, and a shorthand that points at a name which
+# no longer exists is a 404 with extra steps. The old keys stay because people and the model
+# still type them.
 _REPO_ALIASES = {
-    "backend": "indooneteam/Indoone-Backend",
-    "indoone-backend": "indooneteam/Indoone-Backend",
-    "api": "indooneteam/Indoone-Backend",
-    "client": "indooneteam/Indoone-Client",
-    "frontend": "indooneteam/Indoone-Client",
-    "web": "indooneteam/Indoone-Client",
+    "backend": "Sankalpteam/Sankalp-Backend",
+    "sankalp-backend": "Sankalpteam/Sankalp-Backend",
+    "indoone-backend": "Sankalpteam/Sankalp-Backend",
+    "api": "Sankalpteam/Sankalp-Backend",
+    "client": "Sankalpteam/Sankalp",
+    "sankalp": "Sankalpteam/Sankalp",
+    "frontend": "Sankalpteam/Sankalp",
+    "web": "Sankalpteam/Sankalp",
 }
 
 # A git ref may contain letters, digits, dot, dash, underscore and slash. Anything else -
