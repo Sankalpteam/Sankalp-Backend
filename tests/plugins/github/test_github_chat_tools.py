@@ -21,10 +21,10 @@ async def test_github_repository_chat_uses_authenticated_read_tool(monkeypatch) 
                 {
                     "repositories": [
                         {
-                            "full_name": "indooneteam/indoone",
+                            "full_name": "Sankalpteam/sankalp",
                             "private": False,
                             "default_branch": "main",
-                            "html_url": "https://github.com/indooneteam/indoone",
+                            "html_url": "https://github.com/Sankalpteam/sankalp",
                         }
                     ],
                     "secrets_exposed": False,
@@ -40,12 +40,12 @@ async def test_github_repository_chat_uses_authenticated_read_tool(monkeypatch) 
     )
 
     assert reply is not None
-    assert "indooneteam/indoone" in reply
+    assert "Sankalpteam/sankalp" in reply
     # The name is plain text and the URL sits on its own line, so the client renders the
     # link row it already has - with its copy button - instead of an inline markdown link.
-    assert "1. indoone" in reply
-    assert "https://github.com/indooneteam/indoone" in reply
-    assert "[indoone](" not in reply
+    assert "1. sankalp" in reply
+    assert "https://github.com/Sankalpteam/sankalp" in reply
+    assert "[sankalp](" not in reply
     assert calls[0][0] == "github_list_repositories"
     assert calls[0][1]["user_id"] == "user-123"
     assert calls[0][2]["user_id"] == "user-123"
@@ -127,10 +127,10 @@ async def test_repository_inside_request_lists_actual_contents(monkeypatch) -> N
         calls.append((name, data))
         if name == "github_list_repositories":
             return ToolResult(name=name, output=json.dumps({
-                "repositories": [{"full_name": "indooneteam/indoone", "name": "indoone", "private": False, "default_branch": "main"}]
+                "repositories": [{"full_name": "Sankalpteam/sankalp", "name": "sankalp", "private": False, "default_branch": "main"}]
             }), safe=True)
         return ToolResult(name=name, output=json.dumps({
-            "repository": "indooneteam/indoone", "path": "",
+            "repository": "Sankalpteam/sankalp", "path": "",
             "contents": [
                 {"name": "app", "path": "app", "type": "dir", "size": 0},
                 {"name": "README.md", "path": "README.md", "type": "file", "size": 50},
@@ -139,7 +139,7 @@ async def test_repository_inside_request_lists_actual_contents(monkeypatch) -> N
 
     monkeypatch.setattr(chat_tools, "run_tool_async", fake_run_tool_async)
     reply = await chat_tools.handle_github_chat_with_tools(
-        "user-123", "What files are inside my GitHub repository indoone?"
+        "user-123", "What files are inside my GitHub repository sankalp?"
     )
     assert reply is not None
     assert "README.md" in reply
@@ -159,13 +159,13 @@ async def test_repository_file_request_routes_to_file_reader(monkeypatch) -> Non
                 "repositories": [{"full_name": "Sankalpteam/sankalp", "name": "sankalp"}]
             }), safe=True)
         return ToolResult(name=name, output=json.dumps({
-            "repository": "indooneteam/indoone", "path": "README.md",
+            "repository": "Sankalpteam/sankalp", "path": "README.md",
             "content": "# Sankalp\\nRead-only GitHub integration", "truncated": False,
         }), safe=True)
 
     monkeypatch.setattr(chat_tools, "run_tool_async", fake_run_tool_async)
     reply = await chat_tools.handle_github_chat_with_tools(
-        "user-123", "Read README.md in my GitHub repo indoone"
+        "user-123", "Read README.md in my GitHub repo sankalp"
     )
     assert reply is not None
     assert "# Sankalp" in reply
