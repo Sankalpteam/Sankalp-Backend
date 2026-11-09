@@ -30,6 +30,10 @@ _DEFAULT_ALLOWED_HOSTS = ("testserver", "localhost", "127.0.0.1")
 _WEB_APP_ORIGINS = (
     "https://indooneteam.github.io",
     "https://indoone.indoworkspace.in",
+    # The site is moving to the product's own name. Both are allowed while the DNS record
+    # and the certificate are being put in place, so the deploy that adds one never has to
+    # be the deploy that removes the other.
+    "https://sankalp.indoworkspace.in",
 )
 
 # Kept for the tests and for anything that still reads a single origin.
