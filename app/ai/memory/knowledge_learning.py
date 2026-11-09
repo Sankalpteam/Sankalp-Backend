@@ -1,4 +1,4 @@
-"""Approved long-term subject knowledge storage for Indoone.
+"""Approved long-term subject knowledge storage for Sankalp.
 
 This module is intentionally separate from live web research. Fresh web results
 are not persisted automatically. Only explicitly approved/curated knowledge

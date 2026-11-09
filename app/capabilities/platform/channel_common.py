@@ -21,7 +21,7 @@ logger = logging.getLogger("indoone.channel")
 # Sent when the model could not answer at all. The channel user gets an honest
 # reply instead of silence, and nothing about the provider is revealed.
 _FALLBACK_REPLY = (
-    "Indoone is handling a lot of requests right now. Please try again in a moment."
+    "Sankalp is handling a lot of requests right now. Please try again in a moment."
 )
 
 def _enabled(name: str) -> bool:

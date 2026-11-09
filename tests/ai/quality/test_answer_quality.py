@@ -6,7 +6,7 @@ from app.ai.quality.answer_quality import assess_answer
 @pytest.mark.parametrize(
     "question, answer",
     [
-        ("What is Indoone?", "Indoone is an AI platform."),
+        ("What is Sankalp?", "Sankalp is an AI platform."),
         ("Explain gravity.", "Gravity is the attraction between masses."),
     ],
 )
@@ -17,8 +17,8 @@ def test_normal_answers_pass(question: str, answer: str) -> None:
 
 def test_internal_fallback_details_are_rejected() -> None:
     result = assess_answer(
-        "What is Indoone?",
-        "Indoone backend is reachable, but the trained local model is not available yet.",
+        "What is Sankalp?",
+        "Sankalp backend is reachable, but the trained local model is not available yet.",
     )
     assert result.passed is False
     assert result.reason == "internal_detail_leak"
@@ -68,7 +68,7 @@ def test_private_access_question_does_not_require_freshness_sources() -> None:
 def test_internal_tool_failure_text_is_rejected() -> None:
     result = assess_answer(
         "Who was Alan Turing?",
-        "an authorized tool call fails, Indoone should not be presented as a small example improves understanding it.",
+        "an authorized tool call fails, Sankalp should not be presented as a small example improves understanding it.",
     )
     assert result.passed is False
     assert result.reason == "internal_detail_leak"

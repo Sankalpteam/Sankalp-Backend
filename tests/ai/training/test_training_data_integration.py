@@ -16,7 +16,7 @@ def test_train_accepts_instruction_dataset(tmp_path: Path) -> None:
     )
     instructions = tmp_path / "instructions.jsonl"
     instructions.write_text(
-        '{"instruction":"Say hello","response":"Hello from Indoone","category":"greeting"}\n',
+        '{"instruction":"Say hello","response":"Hello from Sankalp","category":"greeting"}\n',
         encoding="utf-8",
     )
 

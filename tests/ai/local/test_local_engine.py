@@ -8,7 +8,7 @@ from app.ai.local.tokenizer import BPETokenizer
 
 
 def test_local_engine_loads_checkpoint_with_model_version(tmp_path: Path) -> None:
-    corpus = "Indoone builds local AI. " * 20
+    corpus = "Sankalp builds local AI. " * 20
     tokenizer = BPETokenizer.train(corpus, vocab_size=64, min_frequency=1)
     model = IndooneTransformer(
         vocab_size=tokenizer.vocab_size,

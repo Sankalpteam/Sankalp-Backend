@@ -17,7 +17,7 @@ def test_text_stats_tool_is_deterministic() -> None:
 
 
 def test_json_summary_tool_is_bounded() -> None:
-    result = run_tool("json_summary", '{"name":"Indoone","version":2}')
+    result = run_tool("json_summary", '{"name":"Sankalp","version":2}')
     assert result.safe is True
     assert json.loads(result.output) == {"key_names": ["name", "version"], "keys": 2, "type": "object"}
 

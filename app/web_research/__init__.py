@@ -1,4 +1,4 @@
-"""Dedicated package for Indoone live web research."""
+"""Dedicated package for Sankalp live web research."""
 
 from .research import (
     ResearchProvider,

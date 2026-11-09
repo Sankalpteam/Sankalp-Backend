@@ -28,10 +28,10 @@ def test_tool_is_not_enabled_for_other_models() -> None:
 
 
 def test_extract_search_call_preserves_content_and_id() -> None:
-    content = {"parts": [{"functionCall": {"name": "search_web", "id": "call-1", "args": {"query": "  latest Indoone news  "}}}]}
+    content = {"parts": [{"functionCall": {"name": "search_web", "id": "call-1", "args": {"query": "  latest Sankalp news  "}}}]}
     call = tools.extract_search_web_call({"candidates": [{"content": content}]})
     assert call is not None
-    assert call.query == "latest Indoone news"
+    assert call.query == "latest Sankalp news"
     assert call.call_id == "call-1"
     assert call.model_content is content
 
@@ -44,12 +44,12 @@ def test_extract_search_call_ignores_normal_text_and_unknown_functions() -> None
 def test_execute_uses_free_public_provider(monkeypatch) -> None:
     class FakeProvider:
         async def search(self, query: str, limit: int = 5):
-            assert query == "latest Indoone news"
+            assert query == "latest Sankalp news"
             assert limit == tools.MAX_SEARCH_RESULTS
             return [ResearchResult("Official update", "https://example.com/news", "Fresh facts")]
 
     monkeypatch.setattr(tools, "build_free_research_provider", lambda: FakeProvider())
-    result = asyncio.run(tools.execute_search_web_call(_call("latest Indoone news")))
+    result = asyncio.run(tools.execute_search_web_call(_call("latest Sankalp news")))
     assert result.status == "ok"
     assert result.results == (ResearchResult("Official update", "https://example.com/news", "Fresh facts"),)
 
@@ -70,7 +70,7 @@ def test_provider_failure_is_reported_without_fabricating_sources(monkeypatch) -
             raise httpx.TimeoutException("timeout")
 
     monkeypatch.setattr(tools, "build_free_research_provider", lambda: BrokenProvider())
-    result = asyncio.run(tools.execute_search_web_call(_call("latest Indoone news")))
+    result = asyncio.run(tools.execute_search_web_call(_call("latest Sankalp news")))
     assert result.status == "unavailable"
     assert result.results == ()
 

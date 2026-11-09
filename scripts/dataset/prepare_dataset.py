@@ -107,7 +107,7 @@ def prepare_dataset(source: Path, output_dir: Path, train_ratio: float, validati
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Clean, deduplicate, split, and validate an Indoone text dataset")
+    parser = argparse.ArgumentParser(description="Clean, deduplicate, split, and validate an Sankalp text dataset")
     parser.add_argument("--source", type=Path, default=Path("data/raw/indoone_corpus.txt"))
     parser.add_argument("--output-dir", type=Path, default=Path("data/processed"))
     parser.add_argument("--train-ratio", type=float, default=0.8)

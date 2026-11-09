@@ -24,26 +24,26 @@ def test_upload_file_saves_authenticated_owner(monkeypatch: pytest.MonkeyPatch) 
             "file_id": "00000000-0000-0000-0000-000000000001",
             "filename": filename,
             "bytes": len(content),
-            "text": "hello Indoone",
+            "text": "hello Sankalp",
         }
 
     monkeypatch.setattr(files_api, "save_text_file", fake_save_text_file)
     body = files_api.FileUploadRequest(
         filename="notes.txt",
-        content_base64=base64.b64encode(b"hello Indoone").decode(),
+        content_base64=base64.b64encode(b"hello Sankalp").decode(),
     )
 
     result = asyncio.run(files_api.upload_file(_request(), body))
 
     assert captured == {
         "filename": "notes.txt",
-        "content": b"hello Indoone",
+        "content": b"hello Sankalp",
         "user_id": OWNER,
     }
     assert result["file_id"] == "00000000-0000-0000-0000-000000000001"
     assert result["filename"] == "notes.txt"
     assert result["bytes"] == 13
-    assert result["text_preview"] == "hello Indoone"
+    assert result["text_preview"] == "hello Sankalp"
 
 
 def test_upload_file_rejects_invalid_base64() -> None:

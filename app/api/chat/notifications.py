@@ -1,4 +1,4 @@
-"""Push-notification token registration for the Indoone app.
+"""Push-notification token registration for the Sankalp app.
 
 The Android client registers its device push token here after sign-in
 (see NotificationApi.kt). Tokens are stored per user so the backend can

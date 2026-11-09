@@ -1,4 +1,4 @@
-"""Google Gemini API service for the Indoone backend.
+"""Google Gemini API service for the Sankalp backend.
 
 The provider is selected explicitly with INDOONE_MODEL_BACKEND=gemini.
 The API key stays server-side in GEMINI_API_KEY and is never sent to the Android app.
@@ -24,7 +24,7 @@ logger = logging.getLogger("indoone.gemini")
 # What the user is told when the provider is at its limit. It never names the
 # provider, the quota, or the reason: the user only needs to know to retry.
 BUSY_MESSAGE = (
-    "Indoone is handling a lot of requests right now. Please try again in a moment."
+    "Sankalp is handling a lot of requests right now. Please try again in a moment."
 )
 
 

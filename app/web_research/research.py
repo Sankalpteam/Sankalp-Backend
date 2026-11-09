@@ -1,4 +1,4 @@
-"""Optional live research layer for Indoone AI."""
+"""Optional live research layer for Sankalp."""
 
 from __future__ import annotations
 

@@ -130,7 +130,7 @@ def promote_model(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate and promote an Indoone model candidate")
+    parser = argparse.ArgumentParser(description="Evaluate and promote an Sankalp model candidate")
     parser.add_argument("--version", required=True)
     parser.add_argument(
         "--revision",

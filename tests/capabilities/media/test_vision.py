@@ -16,7 +16,7 @@ PNG_1X1 = bytes.fromhex(
 def test_image_analysis_returns_metadata_and_ocr_contract(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "app.capabilities.media.vision._run_tesseract",
-        lambda content: ("Hello Indoone", None),
+        lambda content: ("Hello Sankalp", None),
     )
 
     result = analyze_image("test.png", "image/png", base64.b64encode(PNG_1X1).decode())
@@ -25,7 +25,7 @@ def test_image_analysis_returns_metadata_and_ocr_contract(monkeypatch: pytest.Mo
     assert result["width"] == 1
     assert result["height"] == 1
     assert result["ocr"]["available"] is True
-    assert result["ocr"]["text"] == "Hello Indoone"
+    assert result["ocr"]["text"] == "Hello Sankalp"
     assert result["semantic_vision"]["available"] is False
 
 

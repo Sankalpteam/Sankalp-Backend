@@ -2,11 +2,11 @@ from app.web_research.research import ResearchResult, build_deep_research_querie
 
 
 def test_build_deep_research_queries_is_deterministic() -> None:
-    assert build_deep_research_queries("  Indoone AI  ", 4) == [
-        "Indoone AI",
-        "Indoone AI official sources",
-        "Indoone AI recent developments",
-        "Indoone AI data statistics evidence",
+    assert build_deep_research_queries("  Sankalp  ", 4) == [
+        "Sankalp",
+        "Sankalp official sources",
+        "Sankalp recent developments",
+        "Sankalp data statistics evidence",
     ]
 
 

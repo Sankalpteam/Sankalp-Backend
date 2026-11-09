@@ -1,6 +1,6 @@
-"""Indoone AI core entry point.
+"""Sankalp core entry point.
 
-Local Indoone inference remains the default. Gemini chat can be enabled explicitly
+Local Sankalp inference remains the default. Gemini chat can be enabled explicitly
 with INDOONE_MODEL_BACKEND=gemini; supported Gemma 4 models can then use the
 bounded free web-research tool when the question calls for current information.
 """
@@ -97,7 +97,7 @@ def _ensure_model_artifacts(model_dir: Path) -> None:
     github_storage = get_github_release_storage()
     if github_storage is None:
         raise GitHubReleaseStorageError(
-            "Indoone model serving requires GITHUB_MODEL_REPOSITORY, "
+            "Sankalp model serving requires GITHUB_MODEL_REPOSITORY, "
             "GITHUB_MODEL_RELEASE_TAG, and GITHUB_MODEL_TOKEN"
         )
 
@@ -127,7 +127,7 @@ def _load_local_model_runtime() -> "LocalModelRuntime | None":
         return _runtime
 
     if not _MODEL_LOAD_LOCK.acquire(blocking=False):
-        logger.info("Indoone model load already in progress; another request will reuse the loaded runtime")
+        logger.info("Sankalp model load already in progress; another request will reuse the loaded runtime")
         return None
 
     try:
@@ -144,18 +144,18 @@ def _load_local_model_runtime() -> "LocalModelRuntime | None":
             try:
                 _ensure_model_artifacts(MODEL_DIR)
                 if get_github_release_storage() is not None:
-                    logger.info("Indoone model artifacts checked from private GitHub Release")
+                    logger.info("Sankalp model artifacts checked from private GitHub Release")
                 else:
-                    logger.info("Indoone model artifact check completed from private Indoone-Model GitHub Release")
+                    logger.info("Sankalp model artifact check completed from private Indoone-Model GitHub Release")
             except GitHubReleaseStorageError as exc:
                 _NEXT_MODEL_LOAD_ATTEMPT = _next_utc_midnight_timestamp()
-                logger.error("Indoone model artifact check failed: %s", exc)
+                logger.error("Sankalp model artifact check failed: %s", exc)
                 return None
 
             if not (_checkpoint.exists() and _tokenizer.exists()):
                 _NEXT_MODEL_LOAD_ATTEMPT = _next_utc_midnight_timestamp()
                 logger.error(
-                    "Indoone local model artifacts are missing: checkpoint=%s tokenizer=%s",
+                    "Sankalp local model artifacts are missing: checkpoint=%s tokenizer=%s",
                     _checkpoint.exists(), _tokenizer.exists(),
                 )
                 return None
@@ -174,10 +174,10 @@ def _load_local_model_runtime() -> "LocalModelRuntime | None":
 
             _runtime = runtime_factory(_checkpoint, _tokenizer)
             _NEXT_MODEL_LOAD_ATTEMPT = 0.0
-            logger.info("Indoone local model runtime loaded successfully")
+            logger.info("Sankalp local model runtime loaded successfully")
         except Exception as exc:
             _NEXT_MODEL_LOAD_ATTEMPT = now + _MODEL_LOAD_RETRY_SECONDS
-            logger.error("Indoone local model runtime failed to load: %s", exc)
+            logger.error("Sankalp local model runtime failed to load: %s", exc)
             _runtime = None
         return _runtime
     finally:
@@ -203,7 +203,7 @@ def _generate_with_local_model(
 
 
 class _LocalModelAnswerProvider:
-    """Generate every user-facing answer with the trained Indoone model."""
+    """Generate every user-facing answer with the trained Sankalp model."""
 
     async def generate(
         self,
@@ -215,7 +215,7 @@ class _LocalModelAnswerProvider:
     ) -> str:
         runtime = _load_local_model_runtime()
         if runtime is None:
-            raise RuntimeError("trained Indoone local model is unavailable")
+            raise RuntimeError("trained Sankalp local model is unavailable")
 
         context = f"{system_instruction.strip()}\n\n{user_prompt.strip()}".strip()
         try:
@@ -228,7 +228,7 @@ class _LocalModelAnswerProvider:
                 min(max_output_tokens, _MODEL_MAX_NEW_TOKENS),
             )
         except (RuntimeError, ValueError) as exc:
-            raise RuntimeError("trained Indoone local model generation failed") from exc
+            raise RuntimeError("trained Sankalp local model generation failed") from exc
 
 
 _model_answer_provider = _LocalModelAnswerProvider()
@@ -324,7 +324,7 @@ class LocalAIService:
             prompt_parts.extend(["", "USER-PROVIDED DOCUMENT:", document_context.strip()[:100_000]])
 
         if _model_answer_provider is None:
-            raise RuntimeError("trained Indoone model provider is unavailable")
+            raise RuntimeError("trained Sankalp model provider is unavailable")
         # Keep inference on the same prompt distribution used during SFT:
         # <instruction> contains the user's request directly, without injecting
         # a long runtime policy/system prefix that was not part of training.

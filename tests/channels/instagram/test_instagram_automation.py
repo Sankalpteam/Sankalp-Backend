@@ -7,11 +7,11 @@ def test_plan_comment_rule() -> None:
     payload = {
         "event_id": "e1",
         "entries": [
-            {"changes": [{"field": "comments", "value": {"id": "c1", "text": "Hello Indoone"}}]}
+            {"changes": [{"field": "comments", "value": {"id": "c1", "text": "Hello Sankalp"}}]}
         ],
     }
     rules = [
-        {"trigger": "comment", "action": "reply_comment", "keyword": "indoone", "response": "Thanks!"}
+        {"trigger": "comment", "action": "reply_comment", "keyword": "sankalp", "response": "Thanks!"}
     ]
     result = plan_automation(payload, rules)
     assert result["dry_run"] is True

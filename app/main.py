@@ -64,7 +64,7 @@ _PROVIDER_WEBHOOK_PATHS = frozenset(
     }
 )
 # OAuth providers redirect the user's browser to these HTTPS callbacks
-# without an Indoone Bearer token. Each callback handler must validate its
+# without an Sankalp Bearer token. Each callback handler must validate its
 # short-lived, single-use OAuth state before exchanging the provider code.
 _PUBLIC_OAUTH_CALLBACK_PATHS = frozenset(
     {
@@ -182,7 +182,7 @@ async def lifespan(_: FastAPI):
                 pass
 
 
-app = FastAPI(title="Indoone Backend", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="Sankalp Backend", version="0.3.0", lifespan=lifespan)
 configure_network_security(app)
 
 

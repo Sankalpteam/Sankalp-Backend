@@ -9,7 +9,7 @@ MODEL_VERSION = "indoone-gpt-v1"
 
 
 class DecoderBlock(nn.Module):
-    """Pre-norm causal Transformer block used by the local Indoone model."""
+    """Pre-norm causal Transformer block used by the local Sankalp model."""
 
     def __init__(
         self,
@@ -153,7 +153,7 @@ class DecoderBlock(nn.Module):
 
 
 class IndooneTransformer(nn.Module):
-    """Configurable decoder-only Transformer for Indoone local inference."""
+    """Configurable decoder-only Transformer for Sankalp local inference."""
 
     def __init__(
         self,

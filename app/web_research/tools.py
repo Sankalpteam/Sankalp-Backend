@@ -65,7 +65,7 @@ class SearchWebToolResult:
 
 
 def build_search_web_tools(model: str) -> list[dict[str, Any]]:
-    """Expose a search tool to the Gemma 4 models configured for Indoone."""
+    """Expose a search tool to the Gemma 4 models configured for Sankalp."""
     if not model.strip().casefold().startswith("gemma-4-"):
         return []
     return [{

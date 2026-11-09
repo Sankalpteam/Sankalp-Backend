@@ -52,38 +52,38 @@ def test_append_sources_rejects_repeated_output() -> None:
 
 def test_grounding_accepts_answer_supported_by_evidence() -> None:
     evidence = [
-        GroundedEvidence("Pricing", "https://example.com/pricing", "Indoone Pro costs 499 rupees per month.")
+        GroundedEvidence("Pricing", "https://example.com/pricing", "Sankalp Pro costs 499 rupees per month.")
     ]
-    result = assess_grounding("Indoone Pro costs 499 rupees per month.", evidence)
+    result = assess_grounding("Sankalp Pro costs 499 rupees per month.", evidence)
     assert result.passed is True
 
 
 def test_grounding_flags_unsupported_concrete_fact_for_evaluation() -> None:
     evidence = [
-        GroundedEvidence("Pricing", "https://example.com/pricing", "Indoone Pro costs 499 rupees per month.")
+        GroundedEvidence("Pricing", "https://example.com/pricing", "Sankalp Pro costs 499 rupees per month.")
     ]
-    result = assess_grounding("Indoone Pro costs 599 rupees per month.", evidence)
+    result = assess_grounding("Sankalp Pro costs 599 rupees per month.", evidence)
     assert result.passed is False
     assert result.reason == "unsupported_concrete_fact"
 
 
 def test_append_sources_does_not_turn_numeric_mismatch_into_chat_failure() -> None:
     evidence = [
-        GroundedEvidence("Pricing", "https://example.com/pricing", "Indoone Pro costs 499 rupees per month.")
+        GroundedEvidence("Pricing", "https://example.com/pricing", "Sankalp Pro costs 499 rupees per month.")
     ]
     # The checker flags this mismatch for evaluation, but production must not return
     # HTTP 503 solely because compact search snippets don't prove a numerical claim.
-    result = append_sources("Indoone Pro costs 599 rupees per month.", evidence)
+    result = append_sources("Sankalp Pro costs 599 rupees per month.", evidence)
     assert "costs 599 rupees" in result
     assert "https://example.com/pricing" in result
 
 
 def test_grounding_rejects_unknown_url_even_when_a_numeric_mismatch_exists() -> None:
     evidence = [
-        GroundedEvidence("Pricing", "https://example.com/pricing", "Indoone Pro costs 499 rupees per month.")
+        GroundedEvidence("Pricing", "https://example.com/pricing", "Sankalp Pro costs 499 rupees per month.")
     ]
     result = assess_grounding(
-        "Indoone Pro costs 599 rupees per month. https://attacker.example",
+        "Sankalp Pro costs 599 rupees per month. https://attacker.example",
         evidence,
     )
     assert result.passed is False
@@ -92,11 +92,11 @@ def test_grounding_rejects_unknown_url_even_when_a_numeric_mismatch_exists() -> 
 
 def test_append_sources_rejects_unknown_url_even_when_a_numeric_mismatch_exists() -> None:
     evidence = [
-        GroundedEvidence("Pricing", "https://example.com/pricing", "Indoone Pro costs 499 rupees per month.")
+        GroundedEvidence("Pricing", "https://example.com/pricing", "Sankalp Pro costs 499 rupees per month.")
     ]
     with pytest.raises(RuntimeError, match="unsupported_source_url"):
         append_sources(
-            "Indoone Pro costs 599 rupees per month. https://attacker.example",
+            "Sankalp Pro costs 599 rupees per month. https://attacker.example",
             evidence,
         )
 
@@ -118,8 +118,8 @@ def test_grounding_allows_nonnumeric_explanatory_prose() -> None:
 
 
 def test_grounding_rejects_unknown_source_url() -> None:
-    evidence = [GroundedEvidence("Pricing", "https://example.com/pricing", "Indoone Pro costs 499 rupees per month.")]
-    result = assess_grounding("Indoone Pro costs 499 rupees per month. https://attacker.example", evidence)
+    evidence = [GroundedEvidence("Pricing", "https://example.com/pricing", "Sankalp Pro costs 499 rupees per month.")]
+    result = assess_grounding("Sankalp Pro costs 499 rupees per month. https://attacker.example", evidence)
     assert result.passed is False
     assert result.reason == "unsupported_source_url"
 

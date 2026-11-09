@@ -48,12 +48,12 @@ APP = "app"
 _CAPPED = {WA}
 _PREFIX = {"wa:": WA, "tg:": TG, "ig:": IG}
 
-_APP_CHIP = [{"label": "Download Indoone App", "action": "open_app_download"}]
+_APP_CHIP = [{"label": "Download Sankalp app", "action": "open_app_download"}]
 
 _EXHAUSTED = {
-    "kn": "ಈ ತಿಂಗಳ ಉಚಿತ WhatsApp ಮಿತಿ (900) ಮುಗಿದಿದೆ. ಅನಿಯಮಿತವಾಗಿ ಬಳಸಲು ನಮ್ಮ Indoone ಆ್ಯಪ್ ಡೌನ್‌ಲೋಡ್ ಮಾಡಿ 🚀",
-    "hi": "इस महीने की मुफ़्त WhatsApp सीमा (900) पूरी हो गई है। असीमित उपयोग के लिए हमारा Indoone ऐप डाउनलोड करें 🚀",
-    "en": "This month's free WhatsApp limit (900) is used up. Download the Indoone app to keep chatting without limits.",
+    "kn": "ಈ ತಿಂಗಳ ಉಚಿತ WhatsApp ಮಿತಿ (900) ಮುಗಿದಿದೆ. ಅನಿಯಮಿತವಾಗಿ ಬಳಸಲು ನಮ್ಮ Sankalp ಆ್ಯಪ್ ಡೌನ್‌ಲೋಡ್ ಮಾಡಿ 🚀",
+    "hi": "इस महीने की मुफ़्त WhatsApp सीमा (900) पूरी हो गई है। असीमित उपयोग के लिए हमारा Sankalp ऐप डाउनलोड करें 🚀",
+    "en": "This month's free WhatsApp limit (900) is used up. Download the Sankalp app to keep chatting without limits.",
 }
 
 

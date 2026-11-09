@@ -30,11 +30,11 @@ def error_response(code: str, message: str, details: dict[str, Any] | None = Non
 
 
 # What the user is told when a request fails on our side or on a provider's side. It names
-# Indoone, says what happened in one sentence, and reveals nothing about the provider, the
+# Sankalp, says what happened in one sentence, and reveals nothing about the provider, the
 # operation or our configuration. Every route returns this same wording, so the app reads
 # the same way whatever broke.
 REQUEST_FAILED_MESSAGE = (
-    "Indoone could not complete this request. Please try again in a moment."
+    "Sankalp could not complete this request. Please try again in a moment."
 )
 
 
@@ -46,7 +46,7 @@ def provider_failure(
     """Log the real failure and return the error the client is allowed to see.
 
     The provider's own text stays in the log, where it is useful. What leaves here names
-    Indoone and nothing else, because the app shows this message to the user as our own
+    Sankalp and nothing else, because the app shows this message to the user as our own
     words.
 
     The status code is passed through unchanged: the app retries 502, 503 and 504, so

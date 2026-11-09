@@ -686,11 +686,11 @@ async def handle_email_chat(user_id: str, conversation_id: str, message: str) ->
     if requested:
         if requested not in connected:
             label = "Zoho Mail"
-            return label + " is not connected to this Indoone account yet. Connect it from Plugins first."
+            return label + " is not connected to this Sankalp account yet. Connect it from Plugins first."
         provider = requested
     else:
         if not connected:
-            return "No email account is connected to this Indoone account. Connect Email or Zoho Mail from Plugins first."
+            return "No email account is connected to this Sankalp account. Connect Email or Zoho Mail from Plugins first."
         provider = connected[0]
 
     label = "Zoho Mail"

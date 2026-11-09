@@ -76,7 +76,7 @@ def test_provider_sanitizes_result_urls(monkeypatch) -> None:
 
     monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
 
-    results = asyncio.run(HttpResearchProvider("https://search.example/api").search("Indoone"))
+    results = asyncio.run(HttpResearchProvider("https://search.example/api").search("Sankalp"))
 
     assert results == [ResearchResult("Valid", "https://example.com", "ok")]
 
@@ -86,7 +86,7 @@ def test_provider_parses_json_results(monkeypatch) -> None:
 
     class FakeResponse:
         content = json.dumps(
-            {"results": [{"title": "Indoone", "url": "https://indoone.ai", "snippet": "local AI"}]}
+            {"results": [{"title": "Sankalp", "url": "https://indoone.ai", "snippet": "local AI"}]}
         ).encode("utf-8")
 
         def raise_for_status(self) -> None:
@@ -116,10 +116,10 @@ def test_provider_parses_json_results(monkeypatch) -> None:
         "https://search.example/api",
         bearer_token="secret",
     )
-    results = asyncio.run(provider.search("Indoone AI"))
+    results = asyncio.run(provider.search("Sankalp"))
 
-    assert results == [ResearchResult("Indoone", "https://indoone.ai", "local AI")]
-    assert "q=Indoone+AI" in captured["url"]
+    assert results == [ResearchResult("Sankalp", "https://indoone.ai", "local AI")]
+    assert "q=Sankalp" in captured["url"]
     assert captured["auth"] == "Bearer secret"
 
 def test_tavily_provider_parses_ranked_results(monkeypatch) -> None:
@@ -238,14 +238,14 @@ def test_google_news_rss_provider_parses_sources(monkeypatch) -> None:
             return None
         async def get(self, url, headers):
             assert "news.google.com/rss/search" in url
-            assert "q=Indoone+AI" in url
+            assert "q=Sankalp" in url
             assert headers["Accept"].startswith("application/rss+xml")
             return FakeResponse()
 
     monkeypatch.setattr(httpx, "AsyncClient", lambda *args, **kwargs: FakeClient())
 
     from app.web_research.research import GoogleNewsRssResearchProvider
-    results = asyncio.run(GoogleNewsRssResearchProvider().search("Indoone AI", limit=2))
+    results = asyncio.run(GoogleNewsRssResearchProvider().search("Sankalp", limit=2))
 
     assert results[0] == ResearchResult("AI update", "https://example.com/a", "Fresh AI evidence.")
     assert results[1] == ResearchResult("Second source", "https://example.org/b", "Another source.")

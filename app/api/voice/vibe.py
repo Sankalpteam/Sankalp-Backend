@@ -49,12 +49,12 @@ _DEFAULT_THINKING_LEVEL = "low"
 _VOICE_ERROR_MESSAGE = "Vibe could not reach the voice service. Please try again."
 
 _SYSTEM_INSTRUCTION = (
-    "You are the live voice experience called Indoone Vibe in the Indoone app. "
+    "You are the live voice experience called Sankalp Vibe in the Sankalp app. "
     "When the user asks what this voice experience is called, identify it naturally as "
-    "'Indoone Vibe'. Do not call the live voice experience only 'Indoone AI'. "
-    "Do not force the fixed phrase 'I am Indoone Vibe' as a standalone reply; speak "
+    "'Sankalp Vibe'. Do not call the live voice experience only 'Sankalp'. "
+    "Do not force the fixed phrase 'I am Sankalp Vibe' as a standalone reply; speak "
     "naturally and add a brief helpful explanation when relevant. For example, explain "
-    "that Indoone Vibe is the live voice experience in the Indoone app. "
+    "that Sankalp Vibe is the live voice experience in the Sankalp app. "
     "Respond directly and conversationally in the language the user speaks. "
     "Understand Romanized Kannada as Kannada and respond naturally in Kannada. "
     "Keep spoken answers concise and friendly. Do not narrate plans, internal analysis, "
@@ -72,7 +72,7 @@ def _live_config() -> tuple[str, str, str, str]:
         model = f"models/{model}"
     if model != "models/gemini-3.8-live-extended-thinking":
         raise RuntimeError(
-            "Indoone Vibe requires GEMINI_LIVE_MODEL=gemini-3.8-live-extended-thinking"
+            "Sankalp Vibe requires GEMINI_LIVE_MODEL=gemini-3.8-live-extended-thinking"
         )
 
     voice = os.getenv("GEMINI_LIVE_VOICE", _DEFAULT_VOICE).strip() or _DEFAULT_VOICE
@@ -90,7 +90,7 @@ _TOOL_INSTRUCTION = (
     "connected Zoho Mail account. Plugins: GitHub and Instagram. Report "
     "only what a tool returned. Never claim you sent, changed, archived, or "
     "deleted anything. If a connector is not connected, say the user must connect "
-    "it in Indoone."
+    "it in Sankalp."
 )
 
 
@@ -169,7 +169,7 @@ def _connector_is_connected(user_id: str, connector_id: str) -> bool:
 
 
 def _voice_tool_declarations(user_id: str = "") -> list[dict[str, object]]:
-    """Indoone Vibe tools: the read-only tools the user can actually reach.
+    """Sankalp Vibe tools: the read-only tools the user can actually reach.
 
     Vibe builds its list from ``model_tool_declarations``, the same call chat
     makes, so the two can never drift. That call already drops every connector
@@ -207,7 +207,7 @@ def _voice_tool_declarations(user_id: str = "") -> list[dict[str, object]]:
 
 async def _execute_voice_tool(user_id: str, name: str, args: object) -> dict[str, object]:
     if not user_id.strip() or not name.strip():
-        return {"ok": False, "error": "This voice action needs a signed-in Indoone user."}
+        return {"ok": False, "error": "This voice action needs a signed-in Sankalp user."}
     # Read-only plugin tools are dispatched through the shared chat tool loop.
     result = await dispatch_tool(user_id, "", name, args if isinstance(args, dict) else {})
     return _voice_tool_result(name, result)
@@ -745,7 +745,7 @@ async def _vibe_live_session(websocket: WebSocket) -> None:
     except Exception as exc:
         # The reason stays in the log, where it is useful; the user gets our own message.
         logger.warning(
-            "Indoone Vibe Live session failed (%s): %s",
+            "Sankalp Vibe Live session failed (%s): %s",
             type(exc).__name__,
             exc,
             exc_info=True,

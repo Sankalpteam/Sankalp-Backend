@@ -1,4 +1,4 @@
-# Indoone Web Research
+# Sankalp Web Research
 
 This directory is the canonical home for live web research, source attribution, and evidence-grounding code and tests.
 

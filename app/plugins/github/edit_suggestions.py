@@ -23,7 +23,7 @@ def build_code_edit_prompt(
 ) -> str:
     """Build a code-edit request that clearly separates trusted rules from file data."""
     return (
-        "You are preparing a proposed full-file code edit for Indoone. "
+        "You are preparing a proposed full-file code edit for Sankalp. "
         "This is only a proposal: do not claim that you saved, committed, or pushed anything.\n"
         "Rules: preserve unrelated behavior and existing project conventions; avoid new dependencies "
         "unless the request explicitly requires them; do not invent unavailable APIs; do not add credentials, "

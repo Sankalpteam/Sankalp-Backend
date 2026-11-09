@@ -55,10 +55,10 @@ def test_score_case_applies_freshness_quality_gate() -> None:
     case = {
         "id": "freshness",
         "category": "grounding",
-        "prompt": "What is the latest Indoone release?",
+        "prompt": "What is the latest Sankalp release?",
         "expected_topics": ["latest"],
     }
-    score = score_case(case, "The latest Indoone release is version 2.")
+    score = score_case(case, "The latest Sankalp release is version 2.")
     assert score["passed"] is False
     assert score["quality_passed"] is False
     assert score["quality_reason"] == "freshness_not_supported"
@@ -68,12 +68,12 @@ def test_score_case_accepts_freshness_with_sources() -> None:
     case = {
         "id": "freshness",
         "category": "grounding",
-        "prompt": "What is the latest Indoone release?",
+        "prompt": "What is the latest Sankalp release?",
         "expected_topics": ["latest"],
     }
     score = score_case(
         case,
-        "The latest Indoone release is version 2. Sources: https://example.com/release",
+        "The latest Sankalp release is version 2. Sources: https://example.com/release",
     )
     assert score["passed"] is True
     assert score["quality_passed"] is True
@@ -90,15 +90,15 @@ def test_score_case_enforces_supplied_grounding_evidence() -> None:
             {
                 "title": "Conversation storage",
                 "url": "",
-                "snippet": "Indoone stores conversation messages in a local SQLite store.",
+                "snippet": "Sankalp stores conversation messages in a local SQLite store.",
             }
         ],
     }
-    supported = score_case(case, "The evidence says Indoone stores conversation messages in SQLite.")
+    supported = score_case(case, "The evidence says Sankalp stores conversation messages in SQLite.")
     assert supported["passed"] is True
     assert supported["grounding_passed"] is True
 
-    unsupported = score_case(case, "The evidence says Indoone stores conversation messages in PostgreSQL.")
+    unsupported = score_case(case, "The evidence says Sankalp stores conversation messages in PostgreSQL.")
     assert unsupported["passed"] is False
     assert unsupported["grounding_passed"] is True
     assert unsupported["forbidden_matches"] == []
@@ -114,11 +114,11 @@ def test_score_case_rejects_unsupported_grounding_fact() -> None:
             {
                 "title": "Pricing",
                 "url": "",
-                "snippet": "Indoone Pro costs 499 rupees per month.",
+                "snippet": "Sankalp Pro costs 499 rupees per month.",
             }
         ],
     }
-    score = score_case(case, "Indoone Pro costs 599 rupees per month.")
+    score = score_case(case, "Sankalp Pro costs 599 rupees per month.")
     assert score["passed"] is False
     assert score["grounding_passed"] is False
     assert score["grounding_reason"] == "unsupported_concrete_fact"

@@ -1,1 +1,1 @@
-"""Indoone application plugins."""
+"""Sankalp application plugins."""

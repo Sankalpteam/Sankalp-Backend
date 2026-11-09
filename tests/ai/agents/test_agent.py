@@ -266,7 +266,7 @@ def test_agent_endpoint_exposes_multiple_results() -> None:
 
 def test_agent_endpoint_returns_empty_plan_for_general_message() -> None:
     with TestClient(app) as client:
-        response = client.post("/api/agent", json={"message": "hello Indoone"})
+        response = client.post("/api/agent", json={"message": "hello Sankalp"})
     assert response.status_code == 200
     body = response.json()
     assert body["steps"] == []

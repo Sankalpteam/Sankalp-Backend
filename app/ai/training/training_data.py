@@ -1,7 +1,7 @@
-"""Curated instruction data helpers for the Indoone local model.
+"""Curated instruction data helpers for the Sankalp local model.
 
 The training format is intentionally simple and provider-independent so the
-corpus can grow without coupling Indoone to a hosted model service.
+corpus can grow without coupling Sankalp to a hosted model service.
 """
 
 from __future__ import annotations

@@ -13,4 +13,4 @@ def test_promotion_script_help_resolves_app_imports() -> None:
         check=False,
     )
     assert result.returncode == 0
-    assert "Evaluate and promote an Indoone model candidate" in result.stdout
+    assert "Evaluate and promote an Sankalp model candidate" in result.stdout

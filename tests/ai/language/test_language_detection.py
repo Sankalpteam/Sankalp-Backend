@@ -42,7 +42,7 @@ from app.ai.language.language_detection import (
         ("urdu mein batao", "Urdu"),
         ("اردو میں بتائیں", "Urdu"),
         # Other languages Google supports (explicit names and native scripts)
-        ("What is Indoone?", "English"),
+        ("What is Sankalp?", "English"),
         ("Answer in French please", "French"),
         ("en español por favor", "Spanish"),
         ("auf Deutsch bitte", "German"),

@@ -1,4 +1,4 @@
-"""Lightweight, deterministic question-understanding layer for Indoone.
+"""Lightweight, deterministic question-understanding layer for Sankalp.
 
 This layer intentionally avoids model inference and training. It turns common
 natural-language variations into a small, stable decision object that the

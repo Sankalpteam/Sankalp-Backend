@@ -36,7 +36,7 @@ def test_research_endpoint_returns_sources(monkeypatch: pytest.MonkeyPatch) -> N
 def test_deep_research_endpoint_deduplicates_urls(monkeypatch: pytest.MonkeyPatch) -> None:
     class FakeProvider:
         async def search(self, query: str, limit: int = 5) -> list[ResearchResult]:
-            if query == "Indoone":
+            if query == "Sankalp":
                 return [ResearchResult("Source A", "https://example.com/a", "One")]
             return [
                 ResearchResult("Source A revised", "https://example.com/a", "Longer"),
@@ -46,10 +46,10 @@ def test_deep_research_endpoint_deduplicates_urls(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(api, "build_free_research_provider", lambda: FakeProvider())
 
     response = asyncio.run(
-        api.deep_research(api.DeepResearchRequest(query="Indoone", queries=2, per_query_limit=2))
+        api.deep_research(api.DeepResearchRequest(query="Sankalp", queries=2, per_query_limit=2))
     )
 
-    assert response["queries"] == ["Indoone", "Indoone official sources"]
+    assert response["queries"] == ["Sankalp", "Sankalp official sources"]
     assert [item["url"] for item in response["sources"]] == [
         "https://example.com/a",
         "https://example.com/b",

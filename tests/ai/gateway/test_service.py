@@ -108,7 +108,7 @@ async def test_local_model_provider_has_no_generation_timeout(monkeypatch: pytes
     provider = service._LocalModelAnswerProvider()
 
     reply = await provider.generate(
-        system_instruction="You are Indoone AI.",
+        system_instruction="You are Sankalp.",
         user_prompt="Take as long as needed.",
     )
 
@@ -121,7 +121,7 @@ def test_model_artifacts_require_indoone_model_release(monkeypatch: pytest.Monke
 
     with pytest.raises(
         RuntimeError,
-        match="Indoone model serving requires GITHUB_MODEL_REPOSITORY, GITHUB_MODEL_RELEASE_TAG, and GITHUB_MODEL_TOKEN",
+        match="Sankalp model serving requires GITHUB_MODEL_REPOSITORY, GITHUB_MODEL_RELEASE_TAG, and GITHUB_MODEL_TOKEN",
     ):
         service._ensure_model_artifacts(tmp_path)
 

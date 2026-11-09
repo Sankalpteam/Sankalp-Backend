@@ -15,7 +15,7 @@ from app.ai.local.tokenizer import BPETokenizer
 from app.ai.training.training_data import TrainingExample, format_instruction_prompt, load_examples, write_corpus
 
 
-# V1 is the active Indoone model architecture used for production inference.
+# V1 is the active Sankalp model architecture used for production inference.
 DEFAULT_MODEL_CONFIG = {
     "block_size": 512,
     "n_embd": 384,
@@ -669,7 +669,7 @@ def train(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train the Indoone local language model")
+    parser = argparse.ArgumentParser(description="Train the Sankalp local language model")
     parser.add_argument("--corpus", type=Path, default=Path("data/processed/train.txt"))
     parser.add_argument("--validation", type=Path, default=Path("data/processed/validation.txt"))
     parser.add_argument("--instructions", type=Path, default=Path("data/raw/indoone_instructions.jsonl"))

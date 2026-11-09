@@ -1,4 +1,4 @@
-"""Azure OpenAI chat service for the Indoone backend.
+"""Azure OpenAI chat service for the Sankalp backend.
 
 The provider is selected explicitly with INDOONE_MODEL_BACKEND=azure, exactly as
 Google Gemini is selected with =gemini. Nothing here changes the Gemini path:
