@@ -239,6 +239,84 @@ _MAX_ATTEMPTS = 3
 _RETRY_DELAYS = (1.0, 2.0)
 
 
+def _grounding_sources(response_data: dict[str, Any]) -> list[tuple[str, str]]:
+    """The pages Google Search grounding actually cited, in the order it cited them."""
+
+    sources: list[tuple[str, str]] = []
+    candidates = response_data.get("candidates")
+
+    if not isinstance(candidates, list) or not candidates:
+        return sources
+
+    metadata = candidates[0].get("groundingMetadata") if isinstance(candidates[0], dict) else None
+
+    if not isinstance(metadata, dict):
+        return sources
+
+    chunks = metadata.get("groundingChunks")
+
+    if not isinstance(chunks, list):
+        return sources
+
+    for chunk in chunks:
+        web = chunk.get("web") if isinstance(chunk, dict) else None
+        uri = str((web or {}).get("uri") or "").strip()
+        title = str((web or {}).get("title") or "").strip()
+
+        if uri and (title or uri) and (title or uri, uri) not in sources:
+            sources.append((title or uri, uri))
+
+    return sources
+
+
+async def generate_grounded_reply(
+    message: str,
+    *,
+    history: list[tuple[str, str]] | None = None,
+    extra_system_instruction: str = "",
+) -> tuple[str, list[tuple[str, str]]]:
+    """One answer written from Google Search grounding, and the sources it cited.
+
+    Grounding is a built-in tool, and the API refuses to combine it with function
+    declarations in the same request. So this is a separate, function-free call: the
+    research path needs sources, not tools. It raises when the account or the model cannot
+    ground, and the caller falls back to the search we run ourselves.
+    """
+
+    cleaned = message.strip()
+
+    if not cleaned:
+        raise ValueError("message cannot be empty")
+
+    api_key, model = _get_config()
+    set_model(model)
+    encoded_model = quote(model, safe="")
+    url = f"{_API_BASE_URL}/models/{encoded_model}:generateContent"
+
+    system_instruction = _SYSTEM_INSTRUCTION
+
+    if extra_system_instruction.strip():
+        system_instruction += "\n\n" + extra_system_instruction.strip()
+
+    payload: dict[str, Any] = {
+        "systemInstruction": {"parts": [{"text": system_instruction}]},
+        "contents": _build_contents(cleaned, history, "", None, None),
+        "generationConfig": _generation_config(model),
+        "tools": [{"google_search": {}}],
+    }
+
+    headers = {
+        "x-goog-api-key": api_key,
+        "Content-Type": "application/json",
+    }
+    timeout = httpx.Timeout(_TIMEOUT_SECONDS, connect=15.0)
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response_data = await _post_generate_content(client, url, headers, payload)
+
+    return _extract_text(response_data), _grounding_sources(response_data)
+
+
 async def _post_generate_content(
     client: httpx.AsyncClient,
     url: str,

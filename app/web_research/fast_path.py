@@ -103,6 +103,47 @@ def search_query_from(message: str) -> str:
     return query or " ".join((message or "").split()).strip()
 
 
+async def _grounded_answer(
+    message: str,
+    query: str,
+    *,
+    history: list[tuple[str, str]] | None,
+    user_id: str,
+) -> str | None:
+    """The answer Google Search grounding wrote, or None to use our own search.
+
+    None is the ordinary case when grounding is not available - the model is a Gemma one,
+    the account is on a tier without it, or the daily grounding allowance is gone. None of
+    those should cost the user their answer, so the caller falls back to the scraper.
+    """
+
+    try:
+        from app.ai.gateway.gemini_service import generate_grounded_reply
+
+        text, sources = await generate_grounded_reply(
+            query,
+            history=history,
+            extra_system_instruction=_instruction(user_id),
+        )
+    except Exception as exc:
+        logger.info("Google Search grounding unavailable, using our own search: %s", exc)
+        return None
+
+    answer = (text or "").strip()
+
+    if not answer:
+        return None
+
+    if not sources:
+        # No citations means it answered from memory, which is the thing this path exists to
+        # prevent. Our own search is the better answer then.
+        return None
+
+    lines = [answer, "", "Sources:"]
+    lines += [f"{index}. {title} - {url}" for index, (title, url) in enumerate(sources[:8], 1)]
+    return "\n".join(lines)
+
+
 async def web_research_answer(
     message: str,
     *,
@@ -122,6 +163,15 @@ async def web_research_answer(
 
     if not query:
         return None
+
+    # Google Search grounding first: it is the real index, it needs no scraper, and it
+    # returns the pages it used. It is a built-in tool, so this call carries no function
+    # declarations - which is why it lives here, in the research path, and not in the tool
+    # loop where the two cannot be combined.
+    grounded = await _grounded_answer(message, query, history=history, user_id=user_id)
+
+    if grounded is not None:
+        return grounded
 
     try:
         result = await execute_search_web_call(
