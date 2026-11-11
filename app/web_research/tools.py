@@ -64,9 +64,18 @@ class SearchWebToolResult:
     results: tuple[ResearchResult, ...] = ()
 
 
+# The model families that accept function declarations on this API. Gemma 4 was the only one
+# while the account was on the free tier; the paid tier serves Gemini, so a check that only
+# names gemma-4- silently took the search tool away from the model the moment the account was
+# upgraded - the model could no longer decide to search, and nothing said so.
+_FUNCTION_CALLING_FAMILIES = ("gemma-4-", "gemini-2.5-", "gemini-2.0-", "gemini-3")
+
+
 def build_search_web_tools(model: str) -> list[dict[str, Any]]:
-    """Expose a search tool to the Gemma 4 models configured for Sankalp."""
-    if not model.strip().casefold().startswith("gemma-4-"):
+    """Expose a search tool to the models configured for Sankalp."""
+    name = model.strip().casefold()
+
+    if not name.startswith(_FUNCTION_CALLING_FAMILIES):
         return []
     return [{
         "functionDeclarations": [{
