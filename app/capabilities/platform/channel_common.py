@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import os
 
 from app.agents import load as load_agent
@@ -20,9 +21,65 @@ logger = logging.getLogger("indoone.channel")
 
 # Sent when the model could not answer at all. The channel user gets an honest
 # reply instead of silence, and nothing about the provider is revealed.
+# A reply that is a research block rather than a sentence. This is the shape the model is fed
+# as document context, and it reached WhatsApp, Telegram and Instagram as the answer when the
+# model call failed: "<research> title: HI url: https://en.wikipedia.org/wiki/HI snippet: ..."
+# with raw <sub> tags inside. Nothing downstream should ever have to trust that it did not.
+_RAW_BLOCK = re.compile(
+    r"<\s*(research|document|context)\s*>"
+    r"|\btitle:\s*\S+\s*\n?\s*url:"
+    r"|\bsnippet:\s*\S"
+    r"|<\s*(sub|sup|b|i|span)\s*[>/]",
+    re.IGNORECASE,
+)
+
+# Three or more bare links and no sentence is a source dump, not an answer.
+_URL = re.compile(r"https?://\S+", re.IGNORECASE)
+
+
+def looks_like_raw_research(reply: str) -> bool:
+    """True when the text is a research payload rather than something a person wrote."""
+    text = (reply or "").strip()
+
+    if not text:
+        return False
+
+    if _RAW_BLOCK.search(text):
+        return True
+
+    links = _URL.findall(text)
+
+    if len(links) >= 3:
+        without_links = _URL.sub(" ", text)
+        words = [w for w in without_links.split() if any(c.isalpha() for c in w)]
+
+        # A real answer carries its own sentences between the links.
+        if len(words) < 12:
+            return True
+
+    return False
+
+
+_RAW_BLOCK_REPLY = (
+    "I found sources but could not turn them into an answer. Ask me again, or ask something "
+    "narrower."
+)
+
 _FALLBACK_REPLY = (
     "Sankalp is handling a lot of requests right now. Please try again in a moment."
 )
+
+def _frontline(text: str, subject: str):
+    """The app's front line, for a channel message. None when it cannot run."""
+
+    try:
+        from app.agents import pipeline
+
+        return pipeline.process(text, subject=subject)
+    except Exception:  # a front line that fails must not cost the user an answer
+        logger.warning("channel front line failed", exc_info=True)
+        return None
+
 
 def _enabled(name: str) -> bool:
     return os.getenv(name, "false").strip().lower() in {"1", "true", "yes", "on"}
@@ -102,6 +159,19 @@ async def _generate_with_history(owner_user_id: str, channel: str, sender_id: st
     """
 
     conversation_id = _conversation_id(channel, sender_id)
+
+    # The same five-agent front line the app runs, before anything else reads the message.
+    # Without it a channel message reached the research and tool paths raw: no rate check, no
+    # attack check, no masking of Aadhaar or card numbers, no language read, and no intent
+    # read. The subject is the conversation, which is per sender, so one WhatsApp user's
+    # flood cannot rate-limit another's.
+    frontline = _frontline(text, conversation_id)
+
+    if frontline is not None:
+        if frontline.refused and frontline.refusal is not None:
+            return frontline.refusal.detail
+
+        text = frontline.prompt or text
 
     # The same calendar answer the app gets, before any gateway: a festival question on
     # WhatsApp costs nothing and cannot be invented either.
@@ -194,6 +264,16 @@ async def _generate_with_history(owner_user_id: str, channel: str, sender_id: st
     replacement = await answer_instead_of_promise(reply, text, history=history)
     if replacement:
         reply = replacement
+
+    # Last gate before it leaves for a person: a research payload is not a message. This runs
+    # on every channel and does not depend on why the block was produced, which is the point -
+    # the cause can change, and the guard still holds.
+    if looks_like_raw_research(reply):
+        logger.warning(
+            "channel reply was a raw research block and was replaced",
+            extra={"channel": channel, "length": len(reply)},
+        )
+        reply = _RAW_BLOCK_REPLY
 
     # The same reply, said in this channel's own conventions. Sending the app's Markdown to
     # Instagram is how a channel shows raw asterisks to a customer, and a table does not

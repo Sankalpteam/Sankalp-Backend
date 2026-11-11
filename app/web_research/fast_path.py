@@ -161,7 +161,13 @@ async def web_research_answer(
         answer = ""
 
     if not answer.strip():
-        answer = format_results(list(result.results))
+        # The results block is what the model reads, not what a person is shown. Returning it
+        # here is how a WhatsApp reply arrived as "<research> title: HI url: ..." with raw
+        # <sub> tags in it: the model call failed, and the block went out as the answer.
+        return (
+            "I searched and found sources, but could not put them into an answer. "
+            "Ask me again in a moment, or ask something narrower."
+        )
 
     try:
         return append_sources(answer, evidence)
