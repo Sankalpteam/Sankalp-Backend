@@ -252,9 +252,10 @@ class LocalAIService:
 
         # Keep the existing local-model path as the default. When explicitly configured,
         # Google Gemini handles the chat turn and can call the bounded free web-search tool.
+        # The Azure flag is still honoured here so an old .env does not silently fall back to
+        # the local model - it just no longer routes to Azure, which we do not use.
         if _gemini_backend_enabled() or _azure_backend_enabled():
             from app.ai.gateway.gemini_service import generate_gemini_reply, run_with_provider_fallback
-            from app.ai.gateway.azure_openai_service import generate_azure_reply
 
             async def _reply_with(provider):
                 if media_attachments:
@@ -280,43 +281,32 @@ class LocalAIService:
                     extra_system_instruction=extra_system_instruction,
                 )
 
-            # The order is the breaker's decision, not this function's. Gemini is first by
-            # policy; Azure is first only while Gemini is tripped. Each attempt is recorded,
-            # so three consecutive failures open the circuit and the next turn skips Gemini
-            # without paying for the timeout again.
-            _providers = {
-                _breaker.GEMINI: generate_gemini_reply,
-                _breaker.AZURE: generate_azure_reply,
-            }
-            _first, _second = _breaker.preferred_order()
-
-            def _tracked(provider):
-                async def run():
-                    try:
-                        answer = await _reply_with(_providers[provider])
-                    except Exception as exc:
-                        _breaker.note_failure(provider, str(exc))
-                        raise
-                    _breaker.note_success(provider)
-                    return answer
-
-                return run
-
-            # Groq is the last resort, outside the two-provider breaker: when both Gemini
-            # and Azure are out of quota it still answers, and when it is not configured the
-            # chain is exactly what it was before.
+            # Azure is out of the chain. We have no Azure key, so every fallback attempt
+            # spent a full timeout failing before the user saw anything - the worst of both
+            # worlds: no answer, and a slower one.
+            #
+            # What is left: Gemini first, and the breaker still decides whether to skip it
+            # after three consecutive failures so the next turn does not pay for the timeout
+            # again. Groq is the fallback that actually answers, because it has a free tier we
+            # can use and an OpenAI-compatible endpoint that needs no SDK.
             from app.ai.gateway.groq_service import generate_groq_reply, groq_available
 
+            async def _gemini_call():
+                try:
+                    answer = await _reply_with(generate_gemini_reply)
+                except Exception as exc:
+                    _breaker.note_failure(_breaker.GEMINI, str(exc))
+                    raise
+                _breaker.note_success(_breaker.GEMINI)
+                return answer
+
+            async def _groq_call():
+                return await _reply_with(generate_groq_reply)
+
             if groq_available():
-                async def _groq_call():
-                    return await _reply_with(generate_groq_reply)
+                return await run_with_provider_fallback(_gemini_call, _groq_call)
 
-                return await run_with_provider_fallback(
-                    _tracked(_first),
-                    lambda: run_with_provider_fallback(_tracked(_second), _groq_call),
-                )
-
-            return await run_with_provider_fallback(_tracked(_first), _tracked(_second))
+            return await _gemini_call()
 
         if media_attachment is not None or media_attachments:
             raise RuntimeError(
@@ -486,10 +476,8 @@ def _provider_streams() -> list[tuple[str, object]]:
 
             available[_breaker.GEMINI] = ("Gemini", stream_gemini_reply)
 
-        if _azure_stream_configured():
-            from app.ai.gateway.azure_openai_service import stream_azure_reply
-
-            available[_breaker.AZURE] = ("Azure OpenAI", stream_azure_reply)
+        # Azure is not offered for streaming either: no key means the failover could only
+        # ever fail, after a timeout, which is slower than not trying.
     except ImportError:  # a provider module that is not installed is simply not offered
         return []
 
@@ -515,10 +503,7 @@ def _provider_stream():
 
             return stream_gemini_reply
 
-        if _azure_backend_enabled():
-            from app.ai.gateway.azure_openai_service import stream_azure_reply
-
-            return stream_azure_reply
+        # No Azure: see the note in _stream_providers.
     except ImportError:
         return None
 
