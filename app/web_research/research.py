@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import json
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -239,10 +240,18 @@ class BrightDataSerpProvider(ResearchProvider):
 
         target = (
             "https://www.google.com/search"
-            f"?q={quote_plus(query)}&brd_json=1&num={max(10, min(limit, 20))}"
+            f"?q={quote_plus(query)}&num={max(10, min(limit, 20))}"
             f"&gl={self.country}&hl={self.language}"
         )
-        payload = {"zone": self.zone, "url": target, "format": "raw"}
+        # Their own generated example asks for the parsed document: format=json plus
+        # data_format=parsed. Asking for raw HTML and parsing it ourselves is how this breaks
+        # the first time Google changes its markup.
+        payload = {
+            "zone": self.zone,
+            "url": target,
+            "format": "json",
+            "data_format": "parsed",
+        }
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -253,10 +262,32 @@ class BrightDataSerpProvider(ResearchProvider):
             response.raise_for_status()
             data: Any = response.json()
 
-        organic = data.get("organic", []) if isinstance(data, dict) else []
+        organic: list[Any] = []
 
-        if not isinstance(organic, list):
-            return []
+        if isinstance(data, dict):
+            # Parsed output puts the results under organic; a wrapped response keeps the
+            # document under body. Both shapes are accepted rather than one being assumed.
+            for key in ("organic", "results"):
+                candidate = data.get(key)
+                if isinstance(candidate, list):
+                    organic = candidate
+                    break
+
+            if not organic:
+                body = data.get("body")
+
+                if isinstance(body, str):
+                    try:
+                        body = json.loads(body)
+                    except ValueError:
+                        body = None
+
+                if isinstance(body, dict):
+                    for key in ("organic", "results"):
+                        candidate = body.get(key)
+                        if isinstance(candidate, list):
+                            organic = candidate
+                            break
 
         results: list[ResearchResult] = []
 
@@ -265,8 +296,8 @@ class BrightDataSerpProvider(ResearchProvider):
                 continue
 
             title = str(item.get("title") or "").strip()
-            url = _safe_source_url(str(item.get("link") or ""))
-            snippet = str(item.get("description") or "").strip()
+            url = _safe_source_url(str(item.get("link") or item.get("url") or ""))
+            snippet = str(item.get("description") or item.get("snippet") or "").strip()
 
             if title and url:
                 results.append(
