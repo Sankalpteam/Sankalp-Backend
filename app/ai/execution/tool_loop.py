@@ -495,6 +495,31 @@ async def run_tool_loop(
     if not (_gemini_backend_enabled() or _azure_backend_enabled()) or not message.strip():
         return None
 
+    # One small model decides whether this message needs a tool at all. Before this, the model
+    # that writes the answer also chose whether to act, and it chose differently on different
+    # days - which is how a greeting ended up starting a search. A verdict of "no tool" returns
+    # None, and the caller answers directly, exactly as it does when the model picks nothing.
+    try:
+        from app.ai.execution.tool_router import route as _route_tool
+
+        verdict = await _route_tool(
+            message,
+            available=tuple(spec.name for spec in TOOL_SPECS),
+            history=history,
+        )
+
+        if not verdict.use_tool:
+            logger.info(
+                "router said no tool (%s, confidence %.2f) for: %s",
+                verdict.reason,
+                verdict.confidence,
+                message[:80],
+            )
+            return None
+    except Exception:
+        # A router that cannot run must leave the old behaviour untouched.
+        logger.warning("tool router skipped", exc_info=True)
+
     from app.ai.gateway.gemini_service import (
         generate_gemini_function_call_reply,
         run_with_provider_fallback,
