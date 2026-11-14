@@ -209,6 +209,77 @@ class TavilyResearchProvider(ResearchProvider):
             results.append(ResearchResult(title, source_url, snippet))
         return results
 
+class BrightDataSerpProvider(ResearchProvider):
+    """Real search-engine results through Bright Data's SERP API.
+
+    One credit a request, 5,000 a month on the free tier, and the request is a plain Google
+    URL the proxy network fetches and parses for us - so this is a real index behind it, not
+    an encyclopaedia. `brd_json=1` asks for structured results instead of HTML, which is the
+    difference between a pipeline and a screen-scraper.
+    """
+
+    _ENDPOINT = "https://api.brightdata.com/request"
+
+    def __init__(self, api_key: str, zone: str, timeout: float = 20.0, country: str = "in", language: str = "en") -> None:
+        if not api_key.strip():
+            raise ValueError("api_key cannot be empty")
+        if not zone.strip():
+            raise ValueError("zone cannot be empty")
+        self.api_key = api_key.strip()
+        self.zone = zone.strip()
+        self.timeout = timeout
+        self.country = country
+        self.language = language
+
+    async def search(self, query: str, limit: int = 5) -> list[ResearchResult]:
+        query = query.strip()
+
+        if not query:
+            raise ValueError("query cannot be empty")
+
+        target = (
+            "https://www.google.com/search"
+            f"?q={quote_plus(query)}&brd_json=1&num={max(10, min(limit, 20))}"
+            f"&gl={self.country}&hl={self.language}"
+        )
+        payload = {"zone": self.zone, "url": target, "format": "raw"}
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(self._ENDPOINT, headers=headers, json=payload)
+            response.raise_for_status()
+            data: Any = response.json()
+
+        organic = data.get("organic", []) if isinstance(data, dict) else []
+
+        if not isinstance(organic, list):
+            return []
+
+        results: list[ResearchResult] = []
+
+        for item in organic[:limit]:
+            if not isinstance(item, dict):
+                continue
+
+            title = str(item.get("title") or "").strip()
+            url = _safe_source_url(str(item.get("link") or ""))
+            snippet = str(item.get("description") or "").strip()
+
+            if title and url:
+                results.append(
+                    ResearchResult(
+                        title=title[:MAX_TITLE_LENGTH],
+                        url=url,
+                        snippet=snippet[:MAX_SNIPPET_LENGTH],
+                    )
+                )
+
+        return results
+
+
 class DuckDuckGoResearchProvider(ResearchProvider):
     """Free web search, with no API key and no per-query cost.
 
@@ -773,9 +844,18 @@ def build_free_research_provider() -> MultiSourceResearchProvider:
     Everything after it is keyless, so the answer never depends on a paid provider being
     available.
     """
-    from app.web_research.quota import take_tavily_credit
+    from app.web_research.quota import take_serp_credit, take_tavily_credit
 
     providers: list[ResearchProvider] = []
+
+    # A real search index first, while this month's allowance lasts. Both are capped below
+    # their own free limits, so the bill cannot arrive as a surprise.
+    serp_key = os.getenv("INDOONE_BRIGHTDATA_API_KEY", "").strip()
+    serp_zone = os.getenv("INDOONE_BRIGHTDATA_SERP_ZONE", "").strip()
+
+    if serp_key and serp_zone and take_serp_credit():
+        providers.append(BrightDataSerpProvider(api_key=serp_key, zone=serp_zone))
+
     tavily_api_key = os.getenv("INDOONE_TAVILY_API_KEY", "").strip()
 
     if tavily_api_key and take_tavily_credit():

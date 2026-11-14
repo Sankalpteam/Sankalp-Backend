@@ -23,8 +23,10 @@ DEFAULT_MONTHLY_LIMIT = 900
 
 _TABLE = """
 CREATE TABLE IF NOT EXISTS search_usage (
-    month TEXT PRIMARY KEY,
-    used  INTEGER NOT NULL DEFAULT 0
+    provider TEXT NOT NULL DEFAULT 'tavily',
+    month    TEXT NOT NULL,
+    used     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (provider, month)
 )
 """
 
@@ -33,31 +35,29 @@ def _month() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m")
 
 
-def _limit() -> int:
-    raw = os.getenv("INDOONE_TAVILY_MONTHLY_LIMIT", "").strip()
+def _limit(env_name: str, default: int) -> int:
+    raw = os.getenv(env_name, "").strip()
 
     if not raw:
-        return DEFAULT_MONTHLY_LIMIT
+        return default
 
     try:
         value = int(raw)
     except ValueError:
-        return DEFAULT_MONTHLY_LIMIT
+        return default
 
-    return value if value > 0 else DEFAULT_MONTHLY_LIMIT
+    return value if value > 0 else default
 
 
-def take_tavily_credit() -> bool:
-    """Count one search against this month's allowance. False when it is spent.
+def take_credit(provider: str, env_name: str, default_limit: int) -> bool:
+    """Count one request against this month's allowance for one provider.
 
-    A database that cannot answer is treated as "spent": a paid call is the one thing we must
-    not make when we cannot prove we are under the cap.
+    False when the allowance is spent or the database cannot answer. That second case is
+    deliberate: a paid call is the one thing we must not make when we cannot prove we are
+    under the cap.
     """
 
-    if not os.getenv("INDOONE_TAVILY_API_KEY", "").strip():
-        return False
-
-    limit = _limit()
+    limit = _limit(env_name, default_limit)
     month = _month()
 
     try:
@@ -66,7 +66,7 @@ def take_tavily_credit() -> bool:
         with sqlite3.connect(DEFAULT_DB_PATH) as connection:
             connection.execute(_TABLE)
             row = connection.execute(
-                "SELECT used FROM search_usage WHERE month = ?", (month,)
+                "SELECT used FROM search_usage WHERE provider = ? AND month = ?", (provider, month)
             ).fetchone()
             used = int(row[0]) if row else 0
 
@@ -74,23 +74,41 @@ def take_tavily_credit() -> bool:
                 return False
 
             connection.execute(
-                "INSERT INTO search_usage(month, used) VALUES (?, 1) "
-                "ON CONFLICT(month) DO UPDATE SET used = used + 1",
-                (month,),
+                "INSERT INTO search_usage(provider, month, used) VALUES (?, ?, 1) "
+                "ON CONFLICT(provider, month) DO UPDATE SET used = used + 1",
+                (provider, month),
             )
         return True
     except sqlite3.Error:
         return False
 
 
-def tavily_used_this_month() -> int:
+def take_tavily_credit() -> bool:
+    if not os.getenv("INDOONE_TAVILY_API_KEY", "").strip():
+        return False
+
+    return take_credit("tavily", "INDOONE_TAVILY_MONTHLY_LIMIT", DEFAULT_MONTHLY_LIMIT)
+
+
+def take_serp_credit() -> bool:
+    """Bright Data SERP: one credit a search, 5,000 a month free, capped below that."""
+
+    if not os.getenv("INDOONE_BRIGHTDATA_API_KEY", "").strip():
+        return False
+    if not os.getenv("INDOONE_BRIGHTDATA_SERP_ZONE", "").strip():
+        return False
+
+    return take_credit("brightdata_serp", "INDOONE_BRIGHTDATA_MONTHLY_LIMIT", 4_500)
+
+
+def used_this_month(provider: str = "tavily") -> int:
     """For a status line or a log, never for a decision on its own."""
 
     try:
         with sqlite3.connect(DEFAULT_DB_PATH) as connection:
             connection.execute(_TABLE)
             row = connection.execute(
-                "SELECT used FROM search_usage WHERE month = ?", (_month(),)
+                "SELECT used FROM search_usage WHERE provider = ? AND month = ?", (provider, _month())
             ).fetchone()
             return int(row[0]) if row else 0
     except sqlite3.Error:
