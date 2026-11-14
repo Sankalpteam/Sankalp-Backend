@@ -302,6 +302,20 @@ class LocalAIService:
 
                 return run
 
+            # Groq is the last resort, outside the two-provider breaker: when both Gemini
+            # and Azure are out of quota it still answers, and when it is not configured the
+            # chain is exactly what it was before.
+            from app.ai.gateway.groq_service import generate_groq_reply, groq_available
+
+            if groq_available():
+                async def _groq_call():
+                    return await _reply_with(generate_groq_reply)
+
+                return await run_with_provider_fallback(
+                    _tracked(_first),
+                    lambda: run_with_provider_fallback(_tracked(_second), _groq_call),
+                )
+
             return await run_with_provider_fallback(_tracked(_first), _tracked(_second))
 
         if media_attachment is not None or media_attachments:
