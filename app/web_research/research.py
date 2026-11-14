@@ -763,9 +763,26 @@ class GoogleNewsRssResearchProvider(ResearchProvider):
 
 
 def build_free_research_provider() -> MultiSourceResearchProvider:
-    """Return only keyless public providers; no paid API keys or hosted search plans."""
-    return MultiSourceResearchProvider(
-        providers=[
+    """The providers research uses, cheapest-and-freshest first.
+
+    Tavily leads when a key is configured and this month's allowance is not spent: it is a
+    real web index, which none of the others are. It is capped in our own code rather than
+    trusted to stop itself, because one toggle in a dashboard would turn a free month into a
+    bill and nothing here would notice.
+
+    Everything after it is keyless, so the answer never depends on a paid provider being
+    available.
+    """
+    from app.web_research.quota import take_tavily_credit
+
+    providers: list[ResearchProvider] = []
+    tavily_api_key = os.getenv("INDOONE_TAVILY_API_KEY", "").strip()
+
+    if tavily_api_key and take_tavily_credit():
+        providers.append(TavilyResearchProvider(api_key=tavily_api_key, timeout=10.0))
+
+    providers.extend(
+        [
             WikipediaResearchProvider(timeout=6.0),
             WikidataResearchProvider(timeout=8.0),
             GoogleNewsRssResearchProvider(timeout=8.0),
@@ -773,6 +790,8 @@ def build_free_research_provider() -> MultiSourceResearchProvider:
             CrossrefResearchProvider(timeout=8.0),
         ]
     )
+
+    return MultiSourceResearchProvider(providers)
 
 def build_research_provider() -> ResearchProvider | None:
     try:
