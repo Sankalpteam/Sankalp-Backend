@@ -39,6 +39,7 @@ from app.ai.execution.request_context import conversation_instruction
 from app.ai.execution.tool_failure import failure_line, take_tool_failure
 from app.ai.execution.confirmation import classify_reply_async
 from app.ai.execution import limits as chat_limits
+from app.ai.execution.executor_claim import claim as _claim_executor
 from app.ai.execution.tool_loop import run_tool_loop
 from app.ai.agents.agent_async import execute_agent_async
 from app.capabilities.connectors.store import (
@@ -507,6 +508,11 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
             # that confirms it may be a bare "yes", which is not a tool request at all.
             # A pending GitHub write lives in the same store, so the email path
             # must not claim it. Only an email integration's pending belongs here.
+            # One message, one answering path. Each executor below claims the turn when it
+            # produces an answer, so the logs name the path that handled it and a second
+            # claim is reported as the bug it is.
+            _turn = f"{user_id}:{conversation_id}:{abs(hash(body.message)) % 10_000_000}"
+
             _pending_email = get_pending_email_action(user_id, conversation_id)
             email_owns_this = bool(
                 _pending_email
@@ -523,6 +529,8 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
                     approval_tokens=tuple(body.approval_tokens or ()),
                     conversation_id=conversation_id,
                 )
+                if tool_reply is not None:
+                    _claim_executor(_turn, "github_pending_write")
             # A question about the thread itself is answered from a digest of what is
             # stored. The model only sees four messages, so it could not answer this - and
             # sending the whole thread to answer it would undo the saving.
@@ -530,6 +538,8 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
                 tool_reply = await conversation_history_answer(
                     user_id, conversation_id, body.message
                 )
+                if tool_reply is not None:
+                    _claim_executor(_turn, "thread_history")
 
             # A read-only mailbox question is answered deterministically on every backend.
             # "unread emails" can only mean one thing, so the model was spending tokens to
@@ -539,6 +549,8 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
                 tool_reply = await email_read_fast_path(
                     user_id, conversation_id, body.message
                 )
+                if tool_reply is not None:
+                    _claim_executor(_turn, "email_read_fast_path")
 
             # A GitHub request is answered by the deterministic router on EVERY backend,
             # not only the local one. This is the fix for invented branch lists: the model
@@ -556,6 +568,8 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
                     approval_tokens=tuple(body.approval_tokens or ()),
                     conversation_id=conversation_id,
                 )
+                if tool_reply is not None:
+                    _claim_executor(_turn, "github_router")
 
             # A web-research request is answered in THIS turn. The search runs here,
             # before the model speaks, so there is nothing left for it to promise: the
@@ -563,6 +577,8 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
             # the user had to send "kodu" for the answer the first message should carry.
             if tool_reply is None and not email_owns_this:
                 tool_reply = await web_research_answer(body.message, history=history, user_id=user_id)
+                if tool_reply is not None:
+                    _claim_executor(_turn, "web_research")
 
             # No gate on whether to offer tools: the model is given four small
             # declarations and find_tools, so an ordinary message costs a few hundred
@@ -579,6 +595,7 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
                 if agent_history is not None:
                     history = agent_history
                     agent_ran = True
+                    _claim_executor(_turn, "agent_planner")
             if gemini_enabled:
                 # A pending email confirmation must be resolved before anything else.
                 pending = get_pending_email_action(user_id, conversation_id)
@@ -606,6 +623,8 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
                             approval_tokens=body.approval_tokens,
                             extra_system_instruction=extra_instruction,
                         )
+                        if tool_reply is not None:
+                            _claim_executor(_turn, "tool_loop")
                     except Exception:
                         tool_reply = None
             else:
