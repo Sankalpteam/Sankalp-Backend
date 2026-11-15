@@ -254,3 +254,34 @@ def test_the_chip_points_at_spend_when_there_is_little_saved() -> None:
     Supervisor.record_usage("app", "gemini-1.5-flash", 0, 1_000_000)
 
     assert [chip["action"] for chip in ledger.action_chips(Supervisor.get_summary())] == ["view_token_spend"]
+
+
+def test_the_models_we_run_are_priced_as_themselves() -> None:
+    """Every answer used to be costed at the fallback - the most expensive card.
+
+    A flash-lite reply was priced as a pro one, about sixteen times over, and free Groq usage
+    was billed as if it were the priciest model on the list.
+    """
+
+    from app.agents import load
+
+    ledger = load("25_token_cost_ledger").TokenCostSupervisor
+
+    lite = ledger.calculate_cost("gemini-3.5-flash-lite", 1_000_000, 0)
+    pro = ledger.calculate_cost("gemini-1.5-pro", 1_000_000, 0)
+    groq = ledger.calculate_cost("openai/gpt-oss-120b", 1_000_000, 1_000_000)
+
+    assert lite == 0.075
+    assert pro == 1.25
+    assert lite < pro
+    assert groq == 0.0
+
+
+def test_an_unknown_model_is_still_priced_high() -> None:
+    """Over-reporting is recoverable; a surprise invoice is not."""
+
+    from app.agents import load
+
+    ledger = load("25_token_cost_ledger").TokenCostSupervisor
+
+    assert ledger.calculate_cost("some-model-we-have-never-seen", 1_000_000, 0) == 1.25

@@ -32,6 +32,24 @@ _PRICING: dict[str, tuple[float, float, float]] = {
     "gemini-1.5-flash": (0.075, 0.30, 0.01875),
     "gemini-1.5-pro": (1.25, 5.00, 0.3125),
     "azure-gpt-4o-mini": (0.15, 0.60, 0.075),
+    # The models we actually run. Without these, every answer was priced at the fallback -
+    # the most expensive card we know - so a flash-lite reply was costed as a pro one, about
+    # sixteen times over, and free Groq usage was billed as if it were the priciest model on
+    # the list.
+    #
+    # The lite and flash rates are the published flash tier and are an estimate for the 3.x
+    # line; confirm them against the current price sheet before using this number for money.
+    "gemini-3.5-flash-lite": (0.075, 0.30, 0.01875),
+    "gemini-2.5-flash-lite": (0.075, 0.30, 0.01875),
+    "gemini-3.5-flash": (0.30, 2.50, 0.075),
+    "gemini-2.5-flash": (0.30, 2.50, 0.075),
+    # Groq's free tier: no card, no charge. Counting it at any rate at all makes the ledger
+    # overstate what a month cost.
+    "openai/gpt-oss-120b": (0.0, 0.0, 0.0),
+    "openai/gpt-oss-20b": (0.0, 0.0, 0.0),
+    "qwen/qwen3.8-27b": (0.0, 0.0, 0.0),
+    "whisper-large-v3": (0.0, 0.0, 0.0),
+    "whisper-large-v3-turbo": (0.0, 0.0, 0.0),
 }
 
 # Unknown models are priced at the most expensive card we know, so a new model cannot
