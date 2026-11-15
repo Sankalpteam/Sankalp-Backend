@@ -265,3 +265,29 @@ def test_sanitizing_a_real_diff_stays_sub_millisecond() -> None:
         fastest = min(fastest, (time.thread_time() - started) * 1000)
 
     assert fastest < 1.0, f"fastest {fastest:.4f} ms"
+
+
+def test_a_deployment_can_replace_the_repository_aliases(monkeypatch) -> None:
+    """The built-in table is this project's own repositories.
+
+    That is convenient for us and wrong for a user who has a repository called "backend": their
+    message resolved to ours. A deployment can now replace the whole table.
+    """
+
+    from app.agents import load
+
+    monkeypatch.setenv("INDOONE_GITHUB_REPO_ALIASES", "backend=acme/api,client=acme/web")
+    supervisor = load("11_github_supervisor")
+
+    assert supervisor.resolve_repository("backend") == "acme/api"
+    assert supervisor.resolve_repository("CLIENT") == "acme/web"
+    assert supervisor.resolve_repository("me/mine") == "me/mine"
+
+
+def test_without_configuration_the_built_in_table_still_answers(monkeypatch) -> None:
+    from app.agents import load
+
+    monkeypatch.delenv("INDOONE_GITHUB_REPO_ALIASES", raising=False)
+    supervisor = load("11_github_supervisor")
+
+    assert supervisor.resolve_repository("backend") == "Sankalpteam/Sankalp-Backend"

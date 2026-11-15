@@ -41,7 +41,12 @@ MAX_DIFF_CHARS = 10_000
 # The repositories were renamed with the product, and a shorthand that points at a name which
 # no longer exists is a 404 with extra steps. The old keys stay because people and the model
 # still type them.
-_REPO_ALIASES = {
+# Short names mapped to full repositories. These defaults are this project's own, which is
+# convenient for us and wrong for a user who has a repository called "backend": their message
+# would resolve to ours. A deployment can replace the whole table with
+# INDOONE_GITHUB_REPO_ALIASES="backend=owner/name,client=owner/name", and should, before this
+# is offered to anyone outside this organisation.
+_DEFAULT_REPO_ALIASES = {
     "backend": "Sankalpteam/Sankalp-Backend",
     "sankalp-backend": "Sankalpteam/Sankalp-Backend",
     "indoone-backend": "Sankalpteam/Sankalp-Backend",
@@ -51,6 +56,28 @@ _REPO_ALIASES = {
     "frontend": "Sankalpteam/Sankalp",
     "web": "Sankalpteam/Sankalp",
 }
+
+
+def _load_aliases() -> dict[str, str]:
+    """The alias table: the deployment's own when it sets one, ours otherwise."""
+
+    raw = os.getenv("INDOONE_GITHUB_REPO_ALIASES", "").strip()
+
+    if not raw:
+        return dict(_DEFAULT_REPO_ALIASES)
+
+    aliases: dict[str, str] = {}
+
+    for item in raw.split(","):
+        key, _, value = item.partition("=")
+
+        if key.strip() and value.strip():
+            aliases[key.strip().casefold()] = value.strip()
+
+    return aliases or dict(_DEFAULT_REPO_ALIASES)
+
+
+_REPO_ALIASES = _load_aliases()
 
 # A git ref may contain letters, digits, dot, dash, underscore and slash. Anything else -
 # especially a shell metacharacter - is not a branch name, it is an injection attempt or a
@@ -214,7 +241,9 @@ def resolve_repository(repo: str) -> str:
     if "/" in value:
         return value
 
-    return _REPO_ALIASES.get(value.casefold(), value)
+    # No alias, no guess. Returning the bare name lets the validator reject it with a message
+    # the user can act on, rather than silently pointing at somebody else's repository.
+    return _load_aliases().get(value.casefold(), value)
 
 
 def validate_arguments(call: GitHubToolCall) -> tuple[dict[str, Any] | None, str | None]:
