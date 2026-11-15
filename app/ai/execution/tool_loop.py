@@ -142,6 +142,12 @@ from app.web_research.tools import wants_web_research
 
 ALWAYS_ON_TOOL_NAMES = frozenset({"find_tools", "calculator", "text_stats"})
 
+# What one message may carry, all included. Sixteen is about 1,800 tokens: enough for the whole
+# email family, which is eleven tools on its own, plus the always-on set - and a ceiling the
+# bill can be calculated from. `full=True` is exempt: voice asks for the whole catalogue and
+# filters it itself.
+_MAX_DECLARATIONS = 16
+
 # How many tools one find_tools call returns. Five is what the tool is for: enough to
 # choose from, few enough that the model still picks rather than guesses.
 _FIND_TOOLS_LIMIT = 5
@@ -206,12 +212,24 @@ def _connected_read_tools(user_id: str) -> frozenset[str]:
     return frozenset(names)
 
 
+def _families_for(message: str) -> frozenset[str]:
+    """The tool family this message is about, by its words. Never raises."""
+
+    from app.ai.execution.tool_families import families_for
+
+    try:
+        return families_for(message)
+    except Exception:
+        return frozenset()
+
+
 def model_tool_declarations(
     user_id: str = "",
     *,
     discovered: Iterable[str] = (),
     full: bool = False,
     wants_web: bool = False,
+    families: Iterable[str] = (),
 ) -> list[dict[str, Any]]:
     """The tools the model is given for this turn.
 
@@ -236,6 +254,17 @@ def model_tool_declarations(
     # answers a code question from memory instead.
     if wanted_names is not None and _sandbox_offered():
         wanted_names.add("execute_python_snippet")
+
+    # The family this message is about, by its words. Sending all forty-two tools costs about
+    # 4,800 tokens on every round; a family is a few hundred. A message that matches no family
+    # keeps the always-on set and reaches the rest through find_tools.
+    if wanted_names is not None and families:
+        from app.ai.execution.tool_families import tool_names_for
+
+        wanted_names |= tool_names_for(families, (spec.name for spec in TOOL_SPECS))
+
+        if "email" in set(families):
+            wanted_names |= {str(item["name"]) for item in EMAIL_TOOL_DECLARATIONS}
 
     if wanted_names is not None and str(user_id or "").strip():
         wanted_names |= _connected_read_tools(str(user_id).strip())
@@ -269,7 +298,13 @@ def model_tool_declarations(
     if _sandbox_offered() and (wanted_names is None or "execute_python_snippet" in wanted_names):
         declarations.append(dict(_SANDBOX_DECLARATION))
 
-    return declarations
+    # A ceiling on what one message may carry. Without it a message that mentions three
+    # families would send forty declarations and pay for all of them on every round. The
+    # always-on set is first in the list, so the cap can only ever drop family tools.
+    if wanted_names is None:
+        return declarations
+
+    return declarations[:_MAX_DECLARATIONS]
 
 
 def _find_tools_result(query: str, user_id: str = "") -> dict[str, Any]:
@@ -541,6 +576,7 @@ async def run_tool_loop(
             user_id,
             discovered=tuple(discovered),
             wants_web=wants_web_research(message),
+            families=_families_for(message),
         )
 
     async def execute_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
