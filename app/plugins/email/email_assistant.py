@@ -153,6 +153,10 @@ def _zoho_summary(
         "date": _format_zoho_timestamp(received_time or sent_time or row.get("date") or ""),
         "to": str(row.get("toAddress") or row.get("to_address") or row.get("to") or "").strip(),
         "snippet": str(row.get("summary") or row.get("snippet") or row.get("content") or "").strip(),
+        # Whether a mail is read, when the provider says so. Zoho's list does not always
+        # include it, so this is "" when unknown - and an unknown must never be reported as
+        # "unread", which is what the listing used to do.
+        "unread": _unread_state(row),
         "body": "",
     }
 
@@ -191,6 +195,47 @@ def _provider_requested(message: str) -> str:
     if "zoho" in lowered or "ಜೋಹೋ" in lowered or "ಜೂಹೋ" in lowered:
         return "zoho_mail"
     return ""
+
+
+def _unread_state(row: dict[str, Any]) -> str:
+    """'yes', 'no', or '' when the provider did not say.
+
+    Providers spell this differently and some omit it entirely. Only an explicit false-y
+    read flag counts as unread; a missing field is unknown, not unread.
+    """
+
+    for key in ("unread", "isUnread"):
+        value = row.get(key)
+
+        if isinstance(value, bool):
+            return "yes" if value else "no"
+
+        if isinstance(value, str) and value.strip().casefold() in {"true", "false"}:
+            return "yes" if value.strip().casefold() == "true" else "no"
+
+    for key in ("isRead", "read", "is_read"):
+        value = row.get(key)
+
+        if isinstance(value, bool):
+            return "no" if value else "yes"
+
+        if isinstance(value, str) and value.strip().casefold() in {"true", "false"}:
+            return "no" if value.strip().casefold() == "true" else "yes"
+
+    status = str(row.get("status") or "").strip().casefold()
+
+    if status in {"unread", "new"}:
+        return "yes"
+
+    if status in {"read", "seen"}:
+        return "no"
+
+    return ""
+
+
+def _wants_unread(message: str) -> bool:
+    lowered = message.casefold()
+    return "unread" in lowered or "ಓದದ" in lowered or "ಓದಿಲ್ಲದ" in lowered
 
 
 def _is_recent(message: str) -> bool:
@@ -371,8 +416,10 @@ def _format_results(rows: list[dict[str, str]], label: str) -> str:
         return "No matching emails were returned from " + label + "."
 
     count = len(rows)
+    unread_only = bool(rows) and all(row.get("unread") == "yes" for row in rows)
+    word = "unread " if unread_only else ""
     lines = [
-        f"You have {count} email{'s' if count != 1 else ''} in {label}. Newest first:",
+        f"You have {count} {word}email{'s' if count != 1 else ''} in {label}. Newest first:",
         "",
     ]
 
@@ -772,6 +819,21 @@ async def handle_email_chat(user_id: str, conversation_id: str, message: str) ->
     recent = _is_recent(text)
     query = _search_query(text)
     rows = await _list_mail(user, provider, text if recent else query, recent=recent)
+
+    # "unread" is a claim about the mailbox, and Zoho's list does not always carry the read
+    # state. Filtering on a flag we do not have would invent an answer, so: filter when the
+    # provider told us, and say plainly that we cannot tell when it did not.
+    if _wants_unread(text) and not _is_read(text):
+        known = [row for row in rows if row.get("unread")]
+
+        if known:
+            rows = [row for row in known if row.get("unread") == "yes"]
+        elif rows:
+            return (
+                _format_results(rows, label)
+                + "\n\nZoho does not tell me which of these are unread, so this is the newest "
+                "list rather than a count of unread."
+            )
     if _is_read(text):
         if not rows:
             return "No matching emails were found in " + label + "."
