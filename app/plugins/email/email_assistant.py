@@ -608,6 +608,40 @@ async def _delete_drafts(
     return preview + "\n\nNothing has been deleted yet. Reply CONFIRM to delete these draft(s), or CANCEL."
 
 
+async def _delete_each(user_id: str, items: list[Any], id_key: str) -> tuple[int, str]:
+    """Delete what can be deleted, and say what could not.
+
+    The loop used to count a success for every call that did not raise and then stop at the
+    first failure, so a run that moved two of five mails to Trash raised an error and told the
+    user nothing - leaving them to believe no mail had moved. One failure must not hide the
+    work that did happen.
+    """
+
+    completed = 0
+    failure = ""
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        try:
+            await delete_message(
+                user_id,
+                str(item["account_id"]),
+                str(item["folder_id"]),
+                str(item.get(id_key) or item["id"]),
+                approved=True,
+                permanently=False,
+            )
+            completed += 1
+        except Exception as exc:
+            failure = str(exc)[:200] or exc.__class__.__name__
+            logger.warning("email delete failed", extra={"reason": failure})
+            break
+
+    return completed, failure
+
+
 async def _execute_pending(user_id: str, provider: str, action_type: str, payload: dict[str, Any]) -> str:
     if action_type == "send_reply":
         if provider != "zoho_mail":
@@ -663,38 +697,29 @@ async def _execute_pending(user_id: str, provider: str, action_type: str, payloa
         items = payload.get("items")
         if not isinstance(items, list) or not items:
             return "No saved email targets were available to delete."
-        completed = 0
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            await delete_message(
-                user_id,
-                str(item["account_id"]),
-                str(item["folder_id"]),
-                str(item["id"]),
-                approved=True,
-                permanently=False,
+        completed, failure = await _delete_each(user_id, items, "id")
+
+        if failure:
+            return (
+                "Moved " + str(completed) + " of " + str(len(items))
+                + " email(s) to Trash. The rest failed: " + failure
+                + ". Nothing else was changed."
             )
-            completed += 1
+
         return "Moved " + str(completed) + " email(s) to Trash."
 
     if action_type == "delete_drafts":
         items = payload.get("items")
         if not isinstance(items, list) or not items:
             return "No saved draft targets were available to delete."
-        completed = 0
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            await delete_message(
-                user_id,
-                str(item["account_id"]),
-                str(item["folder_id"]),
-                str(item["draft_id"] or item["id"]),
-                approved=True,
-                permanently=False,
+        completed, failure = await _delete_each(user_id, items, "draft_id")
+
+        if failure:
+            return (
+                "Deleted " + str(completed) + " of " + str(len(items))
+                + " draft(s). The rest failed: " + failure + "."
             )
-            completed += 1
+
         return "Deleted " + str(completed) + " draft(s)."
 
     return "This email action is no longer supported. Please ask again."
