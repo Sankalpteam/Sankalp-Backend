@@ -31,8 +31,11 @@ _RESEARCH_QUERY_STOPWORDS = {
     "a", "an", "and", "are", "as", "about", "be", "by", "do", "does", "for",
     "from", "give", "how", "i", "in", "is", "it", "make", "me", "now", "of",
     "on", "please", "research", "simple", "source", "sources", "summary",
-    "tell", "the", "this", "to", "today", "what", "when", "with", "explain",
-    "latest", "current", "currently", "recent", "information", "find", "search",
+    "tell", "the", "this", "to", "what", "when", "with", "explain",
+    "information", "find", "search",
+    # "latest", "today", "recent" and "current" are deliberately NOT stopwords any more. They
+    # were dropped from the English variant of a mixed-language query, which turned
+    # "today latest news" into "news" and answered with last month's headlines.
 }
 _RESEARCH_TERM_ALIASES = {
     "ai": {"ai", "artificial", "intelligence"},

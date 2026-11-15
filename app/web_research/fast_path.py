@@ -41,6 +41,19 @@ _COMMAND_NOISE = re.compile(
     re.IGNORECASE,
 )
 
+# The words around the question, not the question. "ಅರ್ಥ ಆಗಲಿಲ್ಲ ಕೊಡು correct agi news en ede
+# evattu latest" is a person complaining and then asking for news; the whole sentence went to the
+# search engine as the query, and a search engine cannot answer that. What is left after this
+# list is the part worth searching for.
+_CONVERSATION_NOISE = re.compile(
+    r"\b(correct|correctly|agi|agalla|agalilla|agthilla|aguthilla|antha|anthe|enu|en|ede|ide|"
+    r"illa|illaa|beku|beda|nodanna|nodu|nodi|helu|kodu|hegide|hegidhe|mattu|matte|sari|"
+    r"sorry|ok|okay|thanks|thank|bro|anna|dude)\b"
+    r"|ಅರ್ಥ|ಆಗಲಿಲ್ಲ|ಆಗ್ಲಿಲ್ಲ|ಆಗಲ್ಲ|ಆಗ್ತಿಲ್ಲ|ಆಗುತ್ತಿಲ್ಲ|ಗೊತ್ತಿಲ್ಲ|ಗೊತ್ತು|ಸರಿ|ಇಲ್ಲ|ಏನು|ಏನ್|ಹೇಗೆ|ಹೇಗಿದೆ|"
+    r"ಯಾವ|ಎಷ್ಟು|ಕೊಡಿ|ತಿಳಿಸಿ|ತಿಳಿಸು|ನೋಡು|ನೋಡಿ|ಬೇಕು|ಬೇಡ|ಮತ್ತೆ|ಅಂದ್ರೆ|ಅಂತ|ಹಾಗೆ|ಈಗ|ದಯವಿಟ್ಟು",
+    re.IGNORECASE,
+)
+
 # What the model is told once the results are in hand. Every clause here is a failure that
 # was seen in the app: a promise, a question back, or an answer that ignored the sources.
 # The date belongs here for the same reason it belongs in every other door into the model:
@@ -83,6 +96,14 @@ _STOPWORDS = frozenset(
 )
 _CASE_SUFFIXES = ("ದಲ್ಲಿ", "ನಲ್ಲಿ", "ಅಲ್ಲಿ", "ಯಲ್ಲಿ", "ಗೆ", "ಅನ್ನು", "ನ್ನು")
 
+# "evattu" and its spellings are today, and today is a search signal rather than noise: a
+# query that lost it returns last month's news. Normalised rather than deleted.
+_TIME_WORDS = {
+    "evattu": "today", "evatthu": "today", "ivattu": "today", "ivattina": "today",
+    "ivathu": "today", "ಇವತ್ತು": "today", "ಇವತ್ತಿನ": "today", "ಇಂದು": "today",
+    "ಇಂದಿನ": "today", "ninne": "yesterday", "ನಿನ್ನೆ": "yesterday",
+}
+
 
 def _strip_case_suffix(word: str) -> str:
     for suffix in _CASE_SUFFIXES:
@@ -93,9 +114,9 @@ def _strip_case_suffix(word: str) -> str:
 
 def search_query_from(message: str) -> str:
     """The query inside a research request: the words that are not the command."""
-    stripped = _COMMAND_NOISE.sub(" ", message or "")
+    stripped = _CONVERSATION_NOISE.sub(" ", _COMMAND_NOISE.sub(" ", message or ""))
     tokens = [
-        _strip_case_suffix(token)
+        _TIME_WORDS.get(token.casefold(), _strip_case_suffix(token))
         for token in stripped.split()
         if token.casefold() not in _STOPWORDS
     ]
