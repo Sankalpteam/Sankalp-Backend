@@ -20,6 +20,7 @@ from app.ai.memory.file_context import read_text_file
 from app.ai.memory.memory import extract_memory_candidates
 from app.ai.gateway.service import stream_generate
 from app.plugins.github.chat_tools import handle_github_chat_with_tools
+from app.web_research.grounding import split_grounded_sources
 from app.api.security.errors import REQUEST_FAILED_MESSAGE, provider_failure
 
 logger = logging.getLogger("indoone.chat.stream")
@@ -154,6 +155,12 @@ async def stream_chat(request: Request, body: StreamChatRequest) -> StreamingRes
             logger.error("Model answer failed quality checks: %s", quality.reason)
             reply = REQUEST_FAILED_MESSAGE
 
+        # The blocking endpoint has always returned the pages a research answer used; this one
+        # returned the text alone, so a streamed answer on the web carried no citations at all.
+        # The sources are separated from the text here for the same reason: they are data, and
+        # the client draws them as rows.
+        reply, web_sources = split_grounded_sources(reply)
+
         try:
             _stream_store.append(
                 conversation_id,
@@ -167,7 +174,14 @@ async def stream_chat(request: Request, body: StreamChatRequest) -> StreamingRes
         # follow-ups the blocking endpoint returns: Confirm/Cancel for a held write, the
         # obvious next step after a list.
         yield event(
-            {"type": "done", "reply": reply, "action_chips": action_chips.collected()}
+            {
+                "type": "done",
+                "reply": reply,
+                "sources": [
+                    {"title": source.title, "url": source.url} for source in web_sources
+                ],
+                "action_chips": action_chips.collected(),
+            }
         )
 
     async def events_with_reset():
