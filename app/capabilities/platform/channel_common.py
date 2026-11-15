@@ -10,6 +10,7 @@ from app.ai.execution.account_context import accounts_instruction, without_stale
 from app.ai.execution.request_context import conversation_instruction
 from app.ai.execution.tool_failure import failure_line, take_tool_failure
 from app.plugins.festivals.calendar import festival_answer
+from app.plugins.github.chat_tools import handle_github_chat_with_tools
 from app.web_research.fast_path import answer_instead_of_promise, web_research_answer
 from app.ai.execution.conversation_digest import conversation_history_answer
 from app.ai.execution.tool_loop import run_tool_loop
@@ -227,6 +228,27 @@ async def _generate_with_history(owner_user_id: str, channel: str, sender_id: st
             user_id=owner_user_id,
         )
         return pending_reply
+
+    # The GitHub router, in the same place the app runs it: after a pending write has been
+    # resolved and before the model is asked anything. The app has had this since the
+    # invented-branch fix; the channels never did, so a repository question on WhatsApp went
+    # straight to the model and was answered from memory - instantly, with no network latency
+    # to give it away, which is exactly how a made-up branch list looks real.
+    github_reply = await handle_github_chat_with_tools(
+        owner_user_id,
+        text,
+        history=history,
+        approval_tokens=(),
+        conversation_id=conversation_id,
+    )
+
+    if github_reply is not None:
+        store.append(
+            conversation_id,
+            [("user", text), ("assistant", github_reply)],
+            user_id=owner_user_id,
+        )
+        return github_reply
 
     reply: str | None = None
     if _tool_loop_available():
