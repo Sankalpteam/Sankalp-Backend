@@ -249,3 +249,36 @@ def test_the_message_is_never_rewritten_by_the_marshal(monkeypatch) -> None:
 
     assert seen, "the model should have been called"
     assert seen[0] == "kya haal hai batao"
+
+
+def test_a_real_kanglish_message_is_kannada_not_english() -> None:
+    """"nanna zohomail alli unread mails nodu" is Kannada typed in Latin letters.
+
+    The marker set had "maadu", "kodu" and "helu" but not "nodu", so this scored one hit and
+    was labelled English - and the language label decides what language the answer is written
+    in. Every Kanglish sentence in testing came back as English.
+    """
+
+    from app.agents import load
+
+    marshal = load("04_indic_polyglot_marshal")
+
+    for message in (
+        "nanna zohomail alli unread mails nodu",
+        "ivattina weather hegide",
+        "nan eliddu adalla evaga alli develp agirodanna test madona",
+    ):
+        verdict = marshal.analyze(message)
+        assert verdict.primary_language == "kn", message
+        assert verdict.is_transliterated is True, message
+
+
+def test_plain_english_is_still_english() -> None:
+    from app.agents import load
+
+    marshal = load("04_indic_polyglot_marshal")
+
+    for message in ("list my repositories", "read my last email from today", "Hi"):
+        verdict = marshal.analyze(message)
+        assert verdict.primary_language == "en", message
+        assert verdict.is_transliterated is False, message

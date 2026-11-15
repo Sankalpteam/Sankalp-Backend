@@ -42,9 +42,21 @@ _MARATHI_MARKERS = frozenset({"आहे", "नाही", "करा", "मल�
 # Romanised markers. A dialect needs at least DIALECT_FLOOR hits, so one borrowed word in an
 # English sentence does not relabel it.
 _DIALECTS: dict[str, frozenset[str]] = {
+    # The markers have to include what people actually type. The set had "maadu", "kodu" and
+    # "helu" but not "nodu" - so "nanna zohomail alli unread mails nodu", a real message from a
+    # real user, scored one hit and was labelled English. Every Kanglish sentence in testing
+    # came back as English, which decides what language the answer is written in.
     "kanglish": frozenset(
         {"enu", "yenu", "beku", "bekithu", "madodu", "maadu", "maadi", "madi", "hege", "hegiddira",
-         "nanna", "nanu", "illi", "kodra", "kodu", "helu", "hogu", "ide", "illa", "swalpa", "namaskara"}
+         "nanna", "nanu", "illi", "kodra", "kodu", "helu", "hogu", "ide", "illa", "swalpa", "namaskara",
+         # verbs and connectives that fill real messages
+         "nodu", "nodi", "nodanna", "nodbeku", "thorisu", "torisu", "helri", "heli", "kalsi",
+         "kalisi", "bittu", "madbeku", "madona", "maadona", "madtha", "maadta", "agalla",
+         "aglilla", "agirodanna", "aagalla", "aythu", "aytu", "barthe", "barutte", "sigutte",
+         "sigalla", "hogona", "barthini", "ide", "idhe", "illa", "alla", "antha", "andre", "adre",
+         "matte", "bere", "chennagi", "olle", "gottilla", "gottu", "eshtu", "estu", "yaake",
+         "yaav", "elli", "alli", "hegide", "hegidhe", "ivattu", "ivattina", "evattu", "eliddu",
+         "adalla", "evaga", "swalpa", "bekagide", "barthilla"}
     ),
     "hinglish": frozenset(
         {"kya", "kaise", "karo", "kijiye", "karna", "mujhe", "batao", "batayein", "hoga", "chahiye",
