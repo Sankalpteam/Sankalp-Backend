@@ -74,6 +74,65 @@ def split_reply(reply: str, limit: int = 4096) -> list[str]:
     return pieces or [reply]
 
 
+def _quota_identifier(channel: str, sender_id: str) -> str:
+    """The id the quota guard understands: wa:, tg:, ig:."""
+
+    prefix = {"whatsapp": "wa", "telegram": "tg", "instagram": "ig"}.get(channel.strip().casefold())
+
+    if not prefix:
+        return ""
+
+    return f"{prefix}:{sender_id.strip()}"
+
+
+def _channel_quota(channel: str, sender_id: str):
+    """Whether this channel may answer this sender. None when the guard cannot run."""
+
+    identifier = _quota_identifier(channel, sender_id)
+
+    if not identifier:
+        return None
+
+    try:
+        guard = load_agent("22_omnichannel_quota_guard")
+
+        if not guard.enabled():
+            return None
+
+        return guard.check_quota(identifier)
+    except Exception:
+        # A guard that cannot answer must not silence a channel that works.
+        logger.warning("channel quota check skipped", exc_info=True)
+        return None
+
+
+def _quota_message(channel: str, verdict) -> str:
+    """What the user is told when the free month is used up."""
+
+    chips = getattr(verdict, "action_chips", None) or []
+    text = getattr(verdict, "message", "") or ""
+
+    if not text:
+        text = (
+            "This month's free limit for this channel is used up. "
+            "Download the Sankalp app to keep chatting without limits."
+        )
+
+    return text
+
+
+def _record_channel_usage(channel: str, sender_id: str) -> None:
+    identifier = _quota_identifier(channel, sender_id)
+
+    if not identifier:
+        return
+
+    try:
+        load_agent("22_omnichannel_quota_guard").record_usage(identifier)
+    except Exception:
+        logger.warning("channel usage was not recorded", exc_info=True)
+
+
 def _trusted_senders(name: str) -> frozenset[str]:
     """The senders allowed to reach the owner's connected accounts.
 
@@ -185,6 +244,15 @@ async def _generate_with_history(owner_user_id: str, channel: str, sender_id: st
     """
 
     conversation_id = _conversation_id(channel, sender_id)
+
+    # The free-tier ceiling for this channel. The guard existed and nothing called it, so the
+    # WhatsApp cap of 900 messages a month - and the "download the app to keep chatting" line
+    # that is supposed to follow it - never fired at all. A channel that never counts cannot
+    # charge, and the funnel the cap exists for never opened.
+    _quota = _channel_quota(channel, sender_id)
+
+    if _quota is not None and not _quota.is_allowed:
+        return _quota_message(channel, _quota)
 
     # The same five-agent front line the app runs, before anything else reads the message.
     # Without it a channel message reached the research and tool paths raw: no rate check, no
@@ -342,4 +410,5 @@ async def _generate_with_history(owner_user_id: str, channel: str, sender_id: st
         [("user", text), ("assistant", reply)],
         user_id=owner_user_id,
     )
+    _record_channel_usage(channel, sender_id)
     return reply
