@@ -211,6 +211,10 @@ async def _generate_with_history(owner_user_id: str, channel: str, sender_id: st
         conversation_id=conversation_id,
     )
 
+    # A blank answer is not an answer: it reached a WhatsApp user as an empty bubble.
+    if github_reply is not None and not str(github_reply).strip():
+        github_reply = None
+
     if github_reply is not None:
         store.append(
             conversation_id,

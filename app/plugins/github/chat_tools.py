@@ -963,7 +963,7 @@ async def handle_github_chat_with_tools(
             result = await _execute_github_tool(
                 user, tool, stored_arguments, conversation_id=conversation_key, message=message
             )
-            return _format_github_result(tool, result)
+            return _format_github_result(tool, result).strip() or None
         # Anything else - including "did it happen?" - is answered from the record, not by
         # the model. The held change stays held, so the answer can be acted on.
         try:
@@ -1053,4 +1053,7 @@ async def handle_github_chat_with_tools(
         _format_github_result(tool_name, result)
         return None
 
-    return _format_github_result(tool_name, result)
+    # A blank result means "the model should say this in the user's language", not "send an
+    # empty message". Both callers check `is not None`, so returning "" made them send nothing
+    # at all - a GitHub failure on WhatsApp arrived as an empty bubble.
+    return _format_github_result(tool_name, result).strip() or None

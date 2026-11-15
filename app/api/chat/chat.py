@@ -653,6 +653,12 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
                         conversation_id=conversation_id,
                     )
 
+        # A blank reply is not an answer. Every executor returns None when it has nothing to
+        # say, but a formatter that produced "" slipped through as a real reply and the user
+        # got an empty bubble. Normalising here covers every path at once.
+        if tool_reply is not None and not str(tool_reply).strip():
+            tool_reply = None
+
         # The verdict said this was answerable for free and nothing answered it. That is a
         # gap between the routers and the words, and it used to be silent: the message went
         # to the model, which answered from memory. Now it is a log line with a name.
