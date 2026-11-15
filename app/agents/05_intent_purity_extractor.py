@@ -73,7 +73,23 @@ _ACTIONS: dict[str, tuple[str, ...]] = {
         "त्यौहार", "సెలవ", "పండుగ", "விடுமுறை", "பண்டிகை", "ছুটি", "উৎসব",
         "રજા", "તહેવાર", "അവധി", "ഉത്സവം",
     ),
-    "READ_EMAIL": ("unread", "inbox", "mail", "mails", "email", "emails", "patra"),
+    # The word for mail in the user's own script. Without it a Kannada email question carried
+    # no email marker at all and fell through to GENERAL_CHAT, even though the mailbox path
+    # downstream understood the same sentence perfectly.
+    "READ_EMAIL": (
+        "unread", "inbox", "mail", "mails", "email", "emails", "patra",
+        "ಮೇಲ್", "ಮೇಲ್ಗಳು", "ಇಮೇಲ್", "ಮೇಲ್ಬಾಕ್ಸ್", "ಮೇಲ್ಗೆ",
+        "मेल", "ईमेल", "इनबॉक्स",
+    ),
+    # A write is not a read. There was no write action at all, so "delete that email" and
+    # "send a mail to Ravi" both came back as READ_EMAIL - and a read intent is a fast path,
+    # which is the last thing a delete should ever be.
+    "WRITE_EMAIL": (
+        "delete", "remove", "trash", "discard", "send", "reply", "draft", "forward",
+        "unsubscribe", "schedule", "archive", "move",
+        "ಅಳಿಸು", "ಅಳಿಸಿ", "ತೆಗೆ", "ಕಳಿಸು", "ಕಳುಹಿಸು", "ಉತ್ತರ", "ಡ್ರಾಫ್ಟ್", "ಮುಂದೆ",
+        "काढा", "पाठव", "उत्तर", "हटाओ", "भेजो",
+    ),
 }
 
 _ORDINAL_WORDS: dict[str, int] = {
@@ -269,6 +285,17 @@ def _action(lowered: str, words: set[str]) -> tuple[str, bool]:
 
     email_named = any(marker in words for marker in _ACTIONS["READ_EMAIL"])
     reading = any(marker in words for marker in _ACTIONS["LIST"])
+    writing = any(
+        marker in words or marker in native_words or marker in lowered
+        for marker in _ACTIONS["WRITE_EMAIL"]
+    )
+
+    # A write about mail is a write, whatever else the sentence says. It is never a fast path:
+    # the path that executes a write holds it for confirmation, and a fast path would answer
+    # "here is your inbox" to someone who asked to delete one.
+    if email_named and writing:
+        return "WRITE_EMAIL", False
+
     if email_named and reading:
         return "READ_EMAIL", True
     if email_named:

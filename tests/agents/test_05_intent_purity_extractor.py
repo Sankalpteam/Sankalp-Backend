@@ -239,3 +239,46 @@ def test_the_attachment_does_not_rewrite_the_message(monkeypatch) -> None:
     # the state carries the cleaned query; the message itself is untouched by the caller
     assert request.state.intent.cleaned_query == "branch dikhao"
     assert message == "branches ko dikhao"
+
+
+def test_a_write_about_mail_is_not_a_read() -> None:
+    """"delete that email" came back as READ_EMAIL, and a read intent is a fast path.
+
+    There was no write action at all, so every mail-changing request was labelled a read -
+    and the fast path would answer "here is your inbox" to someone who asked to delete one.
+    """
+
+    from app.agents import load
+
+    intent = load("05_intent_purity_extractor")
+
+    for message in (
+        "delete that email",
+        "send a mail to Ravi about the meeting",
+        "reply to that mail",
+        "ಆ ಮೇಲ್ ಅಳಿಸು",
+    ):
+        verdict = intent.extract(message)
+        assert verdict.action == "WRITE_EMAIL", message
+        assert verdict.is_fast_path is False, message
+
+
+def test_a_kannada_mail_question_names_the_mailbox() -> None:
+    """The Kannada word for mail was not in the email markers, so it fell to GENERAL_CHAT."""
+
+    from app.agents import load
+
+    intent = load("05_intent_purity_extractor")
+
+    for message in ("ನನ್ನ ಮೇಲ್ ಓದು", "ಇವತ್ತು ಎಷ್ಟು ಮೇಲ್ ಬಂದಿದೆ"):
+        assert intent.extract(message).action == "READ_EMAIL", message
+
+
+def test_a_read_is_still_a_read() -> None:
+    from app.agents import load
+
+    intent = load("05_intent_purity_extractor")
+
+    assert intent.extract("nanna unread mails nodu").action == "READ_EMAIL"
+    assert intent.extract("list my repositories").action == "LIST"
+    assert intent.extract("Hi").action == "GENERAL_CHAT"
