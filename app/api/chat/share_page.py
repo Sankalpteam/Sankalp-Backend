@@ -32,9 +32,14 @@ def _inline(text: str) -> str:
     """
     escaped = html.escape(text, quote=False)
 
+    # The href is escaped with quotes as well. html.escape(..., quote=False) leaves a double
+    # quote alone, and a URL containing one closed the attribute: "https://a.com/x"onmouseover="
+    # became a real event handler on a page anyone can open. A share link is public, so this
+    # was reachable by anyone who could get a message into a thread.
     escaped = _LINK.sub(
         lambda match: (
-            f'<a href="{match.group(2)}" rel="noopener noreferrer nofollow" target="_blank">'
+            f'<a href="{html.escape(match.group(2), quote=True)}"'
+            ' rel="noopener noreferrer nofollow" target="_blank">'
             f"{match.group(1)}</a>"
         ),
         escaped,
@@ -43,7 +48,8 @@ def _inline(text: str) -> str:
     escaped = _BOLD.sub(r"<strong>\1</strong>", escaped)
     escaped = _BARE_URL.sub(
         lambda match: (
-            f'<a href="{match.group(1)}" rel="noopener noreferrer nofollow" target="_blank">'
+            f'<a href="{html.escape(match.group(1), quote=True)}"'
+            ' rel="noopener noreferrer nofollow" target="_blank">'
             f"{match.group(1)}</a>"
         ),
         escaped,
