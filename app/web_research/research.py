@@ -188,6 +188,12 @@ class TavilyResearchProvider(ResearchProvider):
             "Content-Type": "application/json",
             "User-Agent": "Indoone-Research/1.0",
         }
+        from app.web_research.quota import take_tavily_request_credit
+
+        if not take_tavily_request_credit():
+            logger.info("Tavily allowance spent; skipping this request")
+            return []
+
         async with httpx.AsyncClient(
             timeout=self.timeout,
             follow_redirects=False,
@@ -262,6 +268,14 @@ class BrightDataSerpProvider(ResearchProvider):
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+
+        # One credit, one request. If this month's allowance is spent the provider simply
+        # answers nothing and the keyless sources carry the turn.
+        from app.web_research.quota import take_serp_request_credit
+
+        if not take_serp_request_credit():
+            logger.info("SERP allowance spent; skipping this request")
+            return []
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(self._ENDPOINT, headers=headers, json=payload)
@@ -905,7 +919,7 @@ def build_free_research_provider() -> MultiSourceResearchProvider:
     Everything after it is keyless, so the answer never depends on a paid provider being
     available.
     """
-    from app.web_research.quota import take_serp_credit, take_tavily_credit
+    from app.web_research.quota import take_serp_credit, take_tavily_credit  # noqa: F401
 
     providers: list[ResearchProvider] = []
 
@@ -914,12 +928,15 @@ def build_free_research_provider() -> MultiSourceResearchProvider:
     serp_key = os.getenv("INDOONE_BRIGHTDATA_API_KEY", "").strip()
     serp_zone = os.getenv("INDOONE_BRIGHTDATA_SERP_ZONE", "").strip()
 
-    if serp_key and serp_zone and take_serp_credit():
+    # No credit is taken here. Building the provider is not a request, and one message can
+    # call it once per query variant - the old code took one credit for what could be two or
+    # three searches, which under-counted and would have crossed the free limit unnoticed.
+    if serp_key and serp_zone:
         providers.append(BrightDataSerpProvider(api_key=serp_key, zone=serp_zone))
 
     tavily_api_key = os.getenv("INDOONE_TAVILY_API_KEY", "").strip()
 
-    if tavily_api_key and take_tavily_credit():
+    if tavily_api_key:
         providers.append(TavilyResearchProvider(api_key=tavily_api_key, timeout=10.0))
 
     providers.extend(

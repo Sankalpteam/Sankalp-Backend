@@ -18,8 +18,9 @@ from pathlib import Path
 
 DEFAULT_DB_PATH = Path(os.getenv("INDOONE_CONVERSATION_DB", "data/indoone_conversations.sqlite3"))
 
-# Below the provider's own 1,000 so a burst of retries cannot tip us over the edge.
+# Below the provider's own free limit, so a burst of retries cannot tip us over the edge.
 DEFAULT_MONTHLY_LIMIT = 900
+SERP_MONTHLY_LIMIT = 4_500
 
 _TABLE = """
 CREATE TABLE IF NOT EXISTS search_usage (
@@ -98,7 +99,19 @@ def take_serp_credit() -> bool:
     if not os.getenv("INDOONE_BRIGHTDATA_SERP_ZONE", "").strip():
         return False
 
-    return take_credit("brightdata_serp", "INDOONE_BRIGHTDATA_MONTHLY_LIMIT", 4_500)
+    return take_serp_request_credit()
+
+
+def take_serp_request_credit() -> bool:
+    """One request, counted. Used by the provider itself, which already holds a key."""
+
+    return take_credit("brightdata_serp", "INDOONE_BRIGHTDATA_MONTHLY_LIMIT", SERP_MONTHLY_LIMIT)
+
+
+def take_tavily_request_credit() -> bool:
+    """One request, counted. Used by the provider itself, which already holds a key."""
+
+    return take_credit("tavily", "INDOONE_TAVILY_MONTHLY_LIMIT", DEFAULT_MONTHLY_LIMIT)
 
 
 def used_this_month(provider: str = "tavily") -> int:
