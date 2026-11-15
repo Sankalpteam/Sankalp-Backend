@@ -135,7 +135,7 @@ _REQUIRED = {
 }
 
 _CHIPS_CHECK = (
-    {"label": "Next Holiday", "action": "next_holiday"},
+    {"label": "Next Holiday", "action": "next holiday"},
     {"label": "Month View", "action": "month_schedule"},
 )
 

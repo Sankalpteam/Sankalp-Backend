@@ -207,7 +207,7 @@ def test_a_holiday_check_offers_the_next_holiday_and_the_month() -> None:
     result = run(supervisor.CalendarToolCall("calendar_check_date", {"target_date": "2026-10-02"}))
 
     actions = [chip["action"] for chip in result.action_chips]
-    assert actions == ["next_holiday", "month_schedule"]
+    assert actions == ["next holiday", "month_schedule"]
 
 
 def test_the_decision_costs_under_its_budget() -> None:

@@ -82,19 +82,24 @@ _CHIP_RULES: tuple[tuple[re.Pattern, tuple[dict[str, str], ...]], ...] = (
             r"vijayadasami|sankranti|christmas|ramzan|eid|ಹಬ್ಬ|ರಜೆ|ದೀಪಾವಳಿ|ಯುಗಾದಿ)\b",
             re.IGNORECASE,
         ),
-        ({"label": "Next Holiday", "action": "next_holiday"},),
+        ({"label": "Next Holiday", "action": "next holiday"},),
     ),
     (
         re.compile(r"\b(email|inbox|mail)\b", re.IGNORECASE),
-        ({"label": "Unread Mail", "action": "unread_email"},),
+        ({"label": "Unread Mail", "action": "show my unread emails"},),
     ),
 )
 
 _CHIPS_BY_INTENT: dict[str, tuple[dict[str, str], ...]] = {
-    "LIST": ({"label": "View Diff", "action": "diff"},),
-    "DIFF": ({"label": "Check PRs", "action": "prs"},),
-    "CHECK_HOLIDAY": ({"label": "Next Holiday", "action": "next_holiday"},),
-    "READ_EMAIL": ({"label": "Unread Mail", "action": "unread_email"},),
+    # A chip is a message: both clients send its `action` as the user's next turn. So the
+    # action has to be a sentence the pipeline understands. These used to be internal ids -
+    # "unread_email", "prs", "diff" - and clicking one sent that literal string, which the
+    # mailbox router did not recognise: the user saw a chip, pressed it, and the answer came
+    # from the model's memory.
+    "LIST": ({"label": "View Diff", "action": "show the diff"},),
+    "DIFF": ({"label": "Check PRs", "action": "list my pull requests"},),
+    "CHECK_HOLIDAY": ({"label": "Next Holiday", "action": "next holiday"},),
+    "READ_EMAIL": ({"label": "Unread Mail", "action": "show my unread emails"},),
 }
 
 

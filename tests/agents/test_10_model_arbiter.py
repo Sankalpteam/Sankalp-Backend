@@ -77,7 +77,7 @@ def test_chips_are_inferred_from_what_the_answer_is_about() -> None:
 def test_a_holiday_answer_offers_the_next_holiday() -> None:
     verdict = arbiter.synthesize("Deepavali is on 8 November.", "app")
 
-    assert verdict.action_chips == [{"label": "Next Holiday", "action": "next_holiday"}]
+    assert verdict.action_chips == [{"label": "Next Holiday", "action": "next holiday"}]
 
 
 def test_a_tool_that_emitted_chips_wins_over_a_guess() -> None:
