@@ -283,6 +283,17 @@ def _split(text: str, limit: int) -> list[str]:
     return chunks
 
 
+def split_message(text: str, limit: int = WHATSAPP_LIMIT) -> list[str]:
+    """Break a reply into messages a channel will accept, never inside a word.
+
+    The channel formatters already split, but only the first piece was ever sent: a reply
+    longer than the limit was cut and the rest silently dropped. This is the same splitter,
+    exposed so the sender can send all of it.
+    """
+
+    return _split(text or "", limit)
+
+
 def _plain(text: str) -> str:
     """Strip the markup, keep the words."""
     body = _CODE_FENCE.sub("", text or "")

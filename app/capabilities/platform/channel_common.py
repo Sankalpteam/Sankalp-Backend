@@ -59,6 +59,21 @@ def _owner_user_id(name: str) -> str:
     return os.getenv(name, "").strip()
 
 
+def split_reply(reply: str, limit: int = 4096) -> list[str]:
+    """The reply as the messages a channel will accept.
+
+    A long answer used to be cut at the channel's limit with the rest dropped, because only
+    the first piece the formatter produced was ever sent.
+    """
+
+    try:
+        pieces = load_agent("10_model_arbiter").split_message(reply, limit)
+    except Exception:
+        return [reply]
+
+    return pieces or [reply]
+
+
 def _trusted_senders(name: str) -> frozenset[str]:
     """The senders allowed to reach the owner's connected accounts.
 

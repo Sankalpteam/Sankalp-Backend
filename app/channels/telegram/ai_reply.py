@@ -8,6 +8,7 @@ from app.capabilities.platform.channel_common import (
     _enabled,
     _generate_with_history,
     channel_owner,
+    split_reply,
 )
 from app.capabilities.connectors.store import claim_channel_inbound_event, complete_channel_inbound_event
 from app.channels.telegram.service import send_message as send_telegram_message
@@ -53,7 +54,10 @@ async def process_telegram_update(update: dict[str, Any]) -> bool:
     )
     try:
         reply = await _generate_with_history(owner_user_id, "telegram", sender_id or chat_id, text)
-        await send_telegram_message(chat_id, reply, approved=True)
+        # A long answer is more than one message. Only the first piece used to be sent, so
+        # everything past the channel's limit was lost without a trace.
+        for piece in split_reply(reply):
+            await send_telegram_message(chat_id, piece, approved=True)
     except Exception:
         complete_channel_inbound_event(event_key, success=False)
         logger.exception("Telegram AI reply failed", extra={"message_id": message_id})

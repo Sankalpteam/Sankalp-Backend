@@ -7,6 +7,7 @@ from app.capabilities.platform.channel_common import (
     _enabled,
     _generate_with_history,
     channel_owner,
+    split_reply,
 )
 from app.capabilities.connectors.store import claim_channel_inbound_event, complete_channel_inbound_event
 from app.channels.whatsapp.service import send_text_message as send_whatsapp_text_message
@@ -38,7 +39,10 @@ async def process_whatsapp_message(message: dict[str, Any]) -> bool:
 
     try:
         reply = await _generate_with_history(owner_user_id, "whatsapp", sender_id, text)
-        await send_whatsapp_text_message(sender_id, reply, approved=True)
+        # A long answer is more than one message. Only the first piece used to be sent, so
+        # everything past the channel's limit was lost without a trace.
+        for piece in split_reply(reply):
+            await send_whatsapp_text_message(sender_id, piece, approved=True)
     except Exception:
         complete_channel_inbound_event(event_key, success=False)
         logger.exception("WhatsApp AI reply failed", extra={"message_id": message_id})
