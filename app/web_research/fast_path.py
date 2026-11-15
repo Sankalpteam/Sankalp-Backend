@@ -106,6 +106,18 @@ _TIME_WORDS = {
 
 
 def _strip_case_suffix(word: str) -> str:
+    """Remove a Kannada case ending - but only when that leaves a word.
+
+    Kannada inflects by changing the end of the noun, and a naive strip breaks the noun:
+    "ಬೆಂಗಳೂರಿನಲ್ಲಿ" (in Bengaluru) became "ಬೆಂಗಳೂರಿ", which is not a word in any language, so a
+    Kannada-only query searched for a string that cannot match anything. The locative forms in
+    _STOPWORDS already remove the standalone ones; a token that is mostly Kannada is left
+    exactly as the person wrote it.
+    """
+
+    if not word or not word.isascii():
+        return word
+
     for suffix in _CASE_SUFFIXES:
         if word.endswith(suffix) and len(word) > len(suffix) + 1:
             return word[: -len(suffix)]

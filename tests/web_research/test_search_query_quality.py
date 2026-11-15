@@ -37,3 +37,16 @@ def test_the_english_variant_keeps_its_time_words() -> None:
     variants = build_research_query_variants("today latest news")
 
     assert variants == ["today latest news"]
+
+
+def test_a_kannada_noun_is_not_cut_into_a_non_word() -> None:
+    """"ಬೆಂಗಳೂರಿನಲ್ಲಿ" (in Bengaluru) used to become "ಬೆಂಗಳೂರಿ", which is not a word.
+
+    A Kannada-only query then searched for a string nothing could match, and the answer came
+    back empty for a question the index could have answered.
+    """
+
+    query = search_query_from("ಬೆಂಗಳೂರಿನಲ್ಲಿ ಫೋನ್ ಬೆಲೆ ಎಷ್ಟು ಹುಡುಕು")
+
+    assert "ಬೆಂಗಳೂರಿನಲ್ಲಿ" in query
+    assert "ಬೆಂಗಳೂರಿ " not in query
