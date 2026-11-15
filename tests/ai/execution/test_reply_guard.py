@@ -72,3 +72,30 @@ def test_an_empty_reply_is_left_alone() -> None:
 
 def test_a_sentence_with_one_brace_is_not_a_payload() -> None:
     assert looks_like_tool_dump("The value is {small} in this case.") is False
+
+
+def test_a_repository_list_is_not_a_dump() -> None:
+    """Names and URLs with few words is a list somebody asked for, not a source dump.
+
+    This exact shape was eaten in production: "list my repositories" answered with the
+    guard's apology because three links and no prose looked like a research block.
+    """
+
+    reply = (
+        "You have 3 repositories:\n\n"
+        "1. sankalp\nhttps://github.com/Sankalpteam/Sankalp\n\n"
+        "2. Sankalp-Backend\nhttps://github.com/Sankalpteam/Sankalp-Backend\n\n"
+        "3. Eyesearch\nhttps://github.com/Eyesearch/Eyesearch"
+    )
+
+    text, reason = guard_reply(reply)
+
+    assert text == reply
+    assert reason is None
+
+
+def test_bare_links_with_no_structure_are_still_a_dump() -> None:
+    text, reason = guard_reply("https://a.com/x https://b.com/y https://c.com/z")
+
+    assert reason == "raw_research_block"
+    assert text == RAW_BLOCK_REPLY

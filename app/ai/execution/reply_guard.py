@@ -34,6 +34,15 @@ _RAW_BLOCK = re.compile(
 
 _URL = re.compile(r"https?://\S+", re.IGNORECASE)
 
+# ...unless the text is a list somebody asked for. A repository list is names and URLs with
+# almost no words in it, and it is the shape this guard was meant to protect, not to eat: a
+# numbered or bulleted line is deliberate structure, and structure is not a dump.
+_LIST_LINE = re.compile(r"^\s*(?:\d+[.)]|[-*\u2022])\s+\S", re.MULTILINE)
+
+
+def _is_a_list(text: str) -> bool:
+    return len(_LIST_LINE.findall(text)) >= 2
+
 # The machinery of a tool call, which no person should ever be shown.
 _TOOL_MACHINERY = re.compile(
     r'"(function_call|tool_call_id|tool_calls|arguments|functionCall|finish_reason)"\s*:'
@@ -60,7 +69,7 @@ def looks_like_raw_research(reply: str) -> bool:
 
     links = _URL.findall(text)
 
-    if len(links) >= 3:
+    if len(links) >= 3 and not _is_a_list(text):
         without_links = _URL.sub(" ", text)
         words = [w for w in without_links.split() if any(c.isalpha() for c in w)]
 
