@@ -50,8 +50,8 @@ FAMILY_KEYWORDS: dict[str, tuple[str, ...]] = {
         "chart", "graph", "statistics", "rows", "columns",
     ),
     "schedule": (
-        "schedule", "scheduled", "reminder", "reminders", "calendar", "appointment",
-        "meeting", "task", "tasks", "todo", "alarm",
+        "schedule", "scheduled", "remind", "reminds", "reminder", "reminders", "calendar",
+        "appointment", "meeting", "task", "tasks", "todo", "alarm",
     ),
 }
 

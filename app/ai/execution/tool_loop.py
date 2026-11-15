@@ -142,11 +142,12 @@ from app.web_research.tools import wants_web_research
 
 ALWAYS_ON_TOOL_NAMES = frozenset({"find_tools", "calculator", "text_stats"})
 
-# What one message may carry, all included. Sixteen is about 1,800 tokens: enough for the whole
-# email family, which is eleven tools on its own, plus the always-on set - and a ceiling the
-# bill can be calculated from. `full=True` is exempt: voice asks for the whole catalogue and
-# filters it itself.
-_MAX_DECLARATIONS = 16
+# What one message may carry, all included. Twenty is about 2,300 tokens in the worst case and
+# is set by the largest family: GitHub has seventeen tools, and a cap below that cut the list
+# alphabetically - which dropped "list commits" while keeping "delete branch". A message about
+# repositories needs the read tools, so the cap must clear the family, not trim it.
+# `full=True` is exempt: voice asks for the whole catalogue and filters it itself.
+_MAX_DECLARATIONS = 20
 
 # How many tools one find_tools call returns. Five is what the tool is for: enough to
 # choose from, few enough that the model still picks rather than guesses.
