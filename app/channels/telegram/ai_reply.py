@@ -4,7 +4,11 @@ import logging
 import os
 from typing import Any
 
-from app.capabilities.platform.channel_common import _enabled, _generate_with_history
+from app.capabilities.platform.channel_common import (
+    _enabled,
+    _generate_with_history,
+    channel_owner,
+)
 from app.capabilities.connectors.store import claim_channel_inbound_event, complete_channel_inbound_event
 from app.channels.telegram.service import send_message as send_telegram_message
 
@@ -41,7 +45,12 @@ async def process_telegram_update(update: dict[str, Any]) -> bool:
     if not claim_channel_inbound_event(event_key):
         return False
 
-    owner_user_id = "system:telegram"
+    # Telegram had a hardcoded owner, so no deployment could ever point the bot at a real
+    # account - which is why connectors could not work on Telegram at all. Same rule as
+    # WhatsApp: only a trusted sender reaches the owner's accounts.
+    owner_user_id, _trusted = channel_owner(
+        "telegram", sender_id or chat_id, "INDOONE_TELEGRAM_AI_OWNER_USER_ID"
+    )
     try:
         reply = await _generate_with_history(owner_user_id, "telegram", sender_id or chat_id, text)
         await send_telegram_message(chat_id, reply, approved=True)

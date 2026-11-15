@@ -59,6 +59,45 @@ def _owner_user_id(name: str) -> str:
     return os.getenv(name, "").strip()
 
 
+def _trusted_senders(name: str) -> frozenset[str]:
+    """The senders allowed to reach the owner's connected accounts.
+
+    A channel bot answers anyone who messages it, and the owner id is one account for the
+    whole channel. Without this list, pointing the bot at a real Sankalp account would hand
+    that account's mailbox and repositories to every stranger who found the number. Empty
+    means nobody, which is the safe default: the assistant still answers, it just has no
+    connectors.
+    """
+
+    raw = os.getenv(name, "").strip()
+
+    if not raw:
+        return frozenset()
+
+    return frozenset(item.strip() for item in raw.split(",") if item.strip())
+
+
+def channel_owner(channel: str, sender_id: str, env_name: str) -> tuple[str, bool]:
+    """The account this message is answered as, and whether its connectors may be used.
+
+    Returns the owner id and whether the sender is trusted. An untrusted sender is answered
+    under the channel's own scope, where no connectors are connected, so a tool can only say
+    "connect your account" - never read someone else's.
+    """
+
+    owner = _owner_user_id(env_name)
+
+    if not owner:
+        return f"system:{channel}", False
+
+    trusted = _trusted_senders(env_name.replace("_OWNER_USER_ID", "_TRUSTED_SENDERS"))
+
+    if sender_id.strip() in trusted:
+        return owner, True
+
+    return f"system:{channel}", False
+
+
 def _conversation_id(channel: str, sender_id: str) -> str:
     digest = hashlib.sha256(f"{channel}:{sender_id}".encode("utf-8")).hexdigest()
     return f"channel:{channel}:{digest}"
