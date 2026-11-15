@@ -568,8 +568,14 @@ _EMAIL_READ_INTENT = re.compile(
     r"inbox\s*thorisu|ಮೇಲ್\s*ತೋರಿಸು|ಇನ್‌ಬಾಕ್ಸ್",
     re.IGNORECASE,
 )
+# Every verb that asks the mailbox to change something. "unsubscribe" and "archive" were
+# missing, so a request the assistant cannot perform was answered with a list of the inbox
+# instead of an honest "I cannot do that, but I can move it to Trash" - and the intent agent,
+# which does call them writes, disagreed with this guard on the same sentence.
 _EMAIL_WRITE_INTENT = re.compile(
-    r"\b(send|reply|forward|delete|draft|compose|write)\b|ಕಳಿಸು|ಕಳುಹಿಸು|ಅಳಿಸು|ಉತ್ತರ",
+    r"\b(send|reply|forward|delete|remove|draft|compose|write|unsubscribe|archive|"
+    r"move|trash|discard|schedule)\b"
+    r"|ಕಳಿಸು|ಕಳುಹಿಸು|ಅಳಿಸು|ಉತ್ತರ|ಡ್ರಾಫ್ಟ್|ಸರಿಸು|ಕಸ",
     re.IGNORECASE,
 )
 

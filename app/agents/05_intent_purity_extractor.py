@@ -79,6 +79,9 @@ _ACTIONS: dict[str, tuple[str, ...]] = {
     "READ_EMAIL": (
         "unread", "inbox", "mail", "mails", "email", "emails", "patra",
         "ಮೇಲ್", "ಮೇಲ್ಗಳು", "ಇಮೇಲ್", "ಮೇಲ್ಬಾಕ್ಸ್", "ಮೇಲ್ಗೆ",
+        # A newsletter is mail, and "unsubscribe from that newsletter" was reaching
+        # GENERAL_CHAT with no mailbox named at all.
+        "newsletter", "newsletters", "subscribe",
         "मेल", "ईमेल", "इनबॉक्स",
     ),
     # A write is not a read. There was no write action at all, so "delete that email" and
