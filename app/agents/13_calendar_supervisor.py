@@ -54,6 +54,11 @@ _DAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 _RELATIVE = {
     "today": 0, "now": 0, "ivattu": 0, "ivathu": 0, "aaj": 0, "ఈరోజు": 0,
     "இன்று": 0, "আজ": 0, "ഇന്ന്": 0, "આજે": 0, "ಇಂದು": 0,
+    # "ಇವತ್ತು" is what people actually say, and it was missing while the formal "ಇಂದು" was
+    # there: a Kannada question about today's holiday resolved to no date at all, even though
+    # the research path already normalises the same word to "today". The same word behaved two
+    # different ways in one product.
+    "ಇವತ್ತು": 0, "ಇವತ್ತಿನ": 0, "ಇವತ್ತಿಗೆ": 0, "ivaththu": 0, "ivatthu": 0, "ivathu ": 0,
     "tomorrow": 1, "naale": 1, "nale": 1, "kal": 1, "repu": 1, "రేపు": 1,
     "நாளை": 1, "কাল": 1, "നാളെ": 1, "કાલે": 1, "ನಾಳೆ": 1,
     "yesterday": -1, "ninne": -1, "ninnе": -1, "kal tha": -1, "నిన్న": -1,

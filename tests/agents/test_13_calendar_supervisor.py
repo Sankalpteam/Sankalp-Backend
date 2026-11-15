@@ -233,3 +233,24 @@ def test_relative_date_resolution_alone_is_under_the_budget() -> None:
         fastest = min(fastest, (time.thread_time() - started) * 1000)
 
     assert fastest < 0.05, f"fastest {fastest:.4f} ms"
+
+
+def test_the_colloquial_today_is_understood() -> None:
+    """"ಇವತ್ತು" is what people type; only the formal "ಇಂದು" was in the table.
+
+    A question about today's holiday resolved to no date at all, while the research path
+    already normalised the same word to "today".
+    """
+
+    from datetime import datetime
+
+    from app.agents import load
+
+    calendar = load("13_calendar_supervisor")
+    base = datetime(2026, 11, 16, 9, 0)
+
+    for word in ("ಇವತ್ತು", "ಇವತ್ತಿನ", "ಇಂದು", "today", "ivattu"):
+        assert calendar.resolve_relative_date(word, base) == "2026-11-16", word
+
+    assert calendar.resolve_relative_date("ನಾಳೆ", base) == "2026-11-17"
+    assert calendar.resolve_relative_date("ನಿನ್ನೆ", base) == "2026-11-15"
