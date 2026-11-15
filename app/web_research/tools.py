@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import re
 from typing import Any
 
 import httpx
+
+logger = logging.getLogger("indoone.research")
 
 from app.web_research.research import ResearchResult, build_free_research_provider
 from app.ai.gateway.ai_rules import SEARCH_INVALID_QUERY, SEARCH_NO_RESULTS, SEARCH_UNAVAILABLE
@@ -142,9 +145,19 @@ async def execute_search_web_call(call: SearchWebToolCall) -> SearchWebToolResul
         return SearchWebToolResult(status="invalid_query")
     try:
         provider = build_free_research_provider()
+        # Which providers this process actually built decides what a failure means: if the
+        # paid ones are absent, the key never reached the server, and no amount of retrying
+        # will produce news.
+        logger.info(
+            "research providers built: %s query=%r",
+            [type(item).__name__ for item in getattr(provider, "providers", [])],
+            query[:80],
+        )
         results = await provider.search(query, limit=MAX_SEARCH_RESULTS)
-    except (RuntimeError, ValueError, httpx.HTTPError):
+    except (RuntimeError, ValueError, httpx.HTTPError) as exc:
+        logger.warning("research unavailable: query=%r error=%s", query[:80], exc)
         return SearchWebToolResult(status="unavailable")
+    logger.info("research finished: results=%d query=%r", len(results), query[:80])
     return SearchWebToolResult(
         status="ok" if results else "no_results",
         results=tuple(results[:MAX_SEARCH_RESULTS]),

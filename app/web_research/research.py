@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import os
 import json
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -15,6 +16,8 @@ from urllib.parse import parse_qs, quote_plus, urlparse
 import xml.etree.ElementTree as ElementTree
 
 import httpx
+
+logger = logging.getLogger("indoone.research")
 
 from app.ai.language.language_detection import detect_response_language
 
@@ -747,6 +750,30 @@ class MultiSourceResearchProvider(ResearchProvider):
             for variant in variants
         ]
         outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Nothing in this module used to log, so a research request that found nothing looked
+        # identical to one that never ran: the user got "no results" and the log said nothing
+        # at all. One line per provider, at info, is what makes that answerable.
+        index = 0
+        for provider in self.providers:
+            for variant in variants:
+                outcome = outcomes[index]
+                index += 1
+                name = type(provider).__name__
+                if isinstance(outcome, BaseException):
+                    logger.warning(
+                        "research provider failed: provider=%s query=%r error=%s",
+                        name,
+                        variant[:80],
+                        outcome,
+                    )
+                else:
+                    logger.info(
+                        "research provider answered: provider=%s results=%d query=%r",
+                        name,
+                        len(outcome),
+                        variant[:80],
+                    )
 
         # Keep a small result pool for each provider so one source cannot fill the
         # whole answer before the other independent sources contribute evidence.
