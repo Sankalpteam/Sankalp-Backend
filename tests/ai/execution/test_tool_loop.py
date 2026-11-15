@@ -185,7 +185,15 @@ async def test_run_tool_loop_uses_auto_mode_and_the_users_declarations(monkeypat
     assert captured["mode"] == "AUTO"
     assert captured["return_none"] is True
     assert captured["reuse_text"] is True
-    assert captured["count"] == len(tool_loop.model_tool_declarations("u1"))
+    # The loop now offers the family the message is about, not the bare always-on set: the
+    # message says "repositories", so GitHub is handed over instead of being discovered.
+    from app.ai.execution.tool_families import families_for
+
+    assert captured["count"] == len(
+        tool_loop.model_tool_declarations(
+            "u1", families=families_for("list my repositories")
+        )
+    )
 
 
 def test_the_whole_catalogue_is_not_sent_any_more() -> None:

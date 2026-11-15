@@ -530,31 +530,6 @@ async def run_tool_loop(
     if not (_gemini_backend_enabled() or _azure_backend_enabled()) or not message.strip():
         return None
 
-    # One small model decides whether this message needs a tool at all. Before this, the model
-    # that writes the answer also chose whether to act, and it chose differently on different
-    # days - which is how a greeting ended up starting a search. A verdict of "no tool" returns
-    # None, and the caller answers directly, exactly as it does when the model picks nothing.
-    try:
-        from app.ai.execution.tool_router import route as _route_tool
-
-        verdict = await _route_tool(
-            message,
-            available=tuple(spec.name for spec in TOOL_SPECS),
-            history=history,
-        )
-
-        if not verdict.use_tool:
-            logger.info(
-                "router said no tool (%s, confidence %.2f) for: %s",
-                verdict.reason,
-                verdict.confidence,
-                message[:80],
-            )
-            return None
-    except Exception:
-        # A router that cannot run must leave the old behaviour untouched.
-        logger.warning("tool router skipped", exc_info=True)
-
     from app.ai.gateway.gemini_service import (
         generate_gemini_function_call_reply,
         run_with_provider_fallback,
@@ -565,6 +540,25 @@ async def run_tool_loop(
     write_done = {"value": False}
     # Tools the model asked for with find_tools, so later rounds can call them.
     discovered: set[str] = set()
+    families = _families_for(message)
+
+    # When the message matches no family, we look the tools up for the model instead of asking
+    # it to. Before this the model had find_tools in hand and often did not use it, so a
+    # question phrased in words our keyword list does not know was answered from memory. The
+    # lookup is a local index search, not a model call: it costs no tokens and no latency worth
+    # measuring.
+    if not families and not wants_web_research(message):
+        try:
+            lookup = _find_tools_result(" ".join(message.split())[:200], user_id)
+
+            if lookup.get("ok") is True:
+                found = [
+                    str(item["name"]) for item in (lookup.get("result") or {}).get("tools") or []
+                ]
+                discovered.update(found)
+                logger.info("no family matched; looked up %d tools for: %s", len(found), message[:60])
+        except Exception:
+            logger.warning("automatic tool lookup failed", exc_info=True)
 
     def declarations() -> list[dict[str, Any]]:
         """What the model is offered right now.
@@ -576,7 +570,7 @@ async def run_tool_loop(
             user_id,
             discovered=tuple(discovered),
             wants_web=wants_web_research(message),
-            families=_families_for(message),
+            families=families,
         )
 
     async def execute_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:

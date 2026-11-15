@@ -107,9 +107,13 @@ def test_when_every_provider_fails_the_blocking_path_answers(monkeypatch) -> Non
     assert _collect(service.stream_generate("hi")) == ["the blocking answer"]
 
 
-def test_the_secondary_is_offered_when_only_its_credentials_exist(monkeypatch) -> None:
-    """A Gemini deployment with Azure credentials can still fail over - that is the point
-    of holding them."""
+def test_azure_is_not_offered_even_with_its_credentials(monkeypatch) -> None:
+    """Azure is out of the chain.
+
+    It used to be the streaming secondary, and the test above asserted that. We have no Azure
+    subscription, so every failover attempt paid a timeout and then failed - the worst of both
+    worlds. Credentials in the environment no longer bring it back: streaming is Gemini only.
+    """
     monkeypatch.setenv("INDOONE_MODEL_BACKEND", "gemini")
     monkeypatch.setenv("GEMINI_API_KEY", "g-key")
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "a-key")
@@ -118,7 +122,7 @@ def test_the_secondary_is_offered_when_only_its_credentials_exist(monkeypatch) -
 
     labels = [label for label, _stream in service._provider_streams()]
 
-    assert labels == ["Gemini", "Azure OpenAI"]
+    assert labels == ["Gemini"]
 
 
 def test_no_secondary_is_offered_without_its_credentials(monkeypatch) -> None:
