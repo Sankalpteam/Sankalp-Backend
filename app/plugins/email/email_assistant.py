@@ -338,18 +338,55 @@ async def _read_body(user_id: str, provider: str, row: dict[str, str]) -> str:
     return str(body).strip()[:5000]
 
 
+def _friendly_date(value: object) -> str:
+    """A date a person can read, in IST, or nothing at all.
+
+    The list used to carry the provider's ISO timestamp - "2026-10-27T18:58:55.567Z" - which is
+    machine output in a human sentence. A date that cannot be parsed is dropped rather than
+    shown raw.
+    """
+
+    stamp = _mail_timestamp(value)
+
+    if not stamp:
+        return ""
+
+    try:
+        moment = datetime.fromtimestamp(stamp, tz=timezone(timedelta(hours=5, minutes=30)))
+    except (OverflowError, OSError, ValueError):
+        return ""
+
+    return moment.strftime("%d %b, %I:%M %p").replace(" 0", " ")
+
+
 def _format_results(rows: list[dict[str, str]], label: str) -> str:
+    """One line per email: number, subject, sender, date. No bodies.
+
+    The previous shape put 180 characters of each message under every line, so eight emails
+    arrived as one wall of text with the subjects lost inside it. A list is a list: the body is
+    what "read email 3" is for, and it is fetched when it is asked for.
+    """
+
     if not rows:
         return "No matching emails were returned from " + label + "."
-    lines = ["Found " + str(len(rows)) + " email(s) in " + label + ":"]
+
+    count = len(rows)
+    lines = [
+        f"You have {count} email{'s' if count != 1 else ''} in {label}. Newest first:",
+        "",
+    ]
+
     for index, row in enumerate(rows, start=1):
-        line = str(index) + ". " + row.get("subject", "(No subject)")
-        line += " — From: " + row.get("from", "Unknown sender")
-        if row.get("date"):
-            line += " — " + row["date"]
-        if row.get("snippet"):
-            line += "\n   " + row["snippet"][:180]
+        subject = " ".join(str(row.get("subject") or "(no subject)").split())
+        sender = " ".join(str(row.get("from") or "unknown sender").split())
+        when = _friendly_date(row.get("date"))
+
+        line = f"{index}. {subject}"
+        line += f"\n   {sender}"
+        if when:
+            line += f" · {when}"
         lines.append(line)
+
     return "\n".join(lines)
 
 
