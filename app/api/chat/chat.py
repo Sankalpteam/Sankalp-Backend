@@ -40,6 +40,7 @@ from app.ai.execution.tool_failure import failure_line, take_tool_failure
 from app.ai.execution.confirmation import classify_reply_async
 from app.ai.execution import limits as chat_limits
 from app.ai.execution.executor_claim import claim as _claim_executor
+from app.ai.execution.reply_guard import guard_reply
 from app.ai.execution.tool_loop import run_tool_loop
 from app.ai.agents.agent_async import execute_agent_async
 from app.capabilities.connectors.store import (
@@ -802,6 +803,17 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
 
     if synthesized.formatted_text:
         reply = synthesized.formatted_text
+
+    # The same guard the channels use, for the same reason: a tool's payload is not a reply.
+    # The app has a second screen to explain an empty message on, but a JSON object in a chat
+    # bubble is still not an answer.
+    reply, replaced_because = guard_reply(reply)
+
+    if replaced_because:
+        logger.warning(
+            "app reply was replaced before sending",
+            extra={"reason": replaced_because, "length": len(reply)},
+        )
 
     chips = synthesized.action_chips or action_chips.collected()
     action_chips.reset()

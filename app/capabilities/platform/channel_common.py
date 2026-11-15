@@ -10,6 +10,7 @@ from app.ai.execution.account_context import accounts_instruction, without_stale
 from app.ai.execution.request_context import conversation_instruction
 from app.ai.execution.tool_failure import failure_line, take_tool_failure
 from app.plugins.festivals.calendar import festival_answer
+from app.ai.execution.reply_guard import guard_reply, looks_like_raw_research
 from app.plugins.github.chat_tools import handle_github_chat_with_tools
 from app.web_research.fast_path import answer_instead_of_promise, web_research_answer
 from app.ai.execution.conversation_digest import conversation_history_answer
@@ -37,38 +38,6 @@ _RAW_BLOCK = re.compile(
 # Three or more bare links and no sentence is a source dump, not an answer.
 _URL = re.compile(r"https?://\S+", re.IGNORECASE)
 
-
-def looks_like_raw_research(reply: str) -> bool:
-    """True when the text is a research payload rather than something a person wrote."""
-    text = (reply or "").strip()
-
-    if not text:
-        return False
-
-    if _RAW_BLOCK.search(text):
-        return True
-
-    links = _URL.findall(text)
-
-    if len(links) >= 3:
-        without_links = _URL.sub(" ", text)
-        words = [w for w in without_links.split() if any(c.isalpha() for c in w)]
-
-        # A real answer carries its own sentences between the links.
-        if len(words) < 12:
-            return True
-
-    return False
-
-
-_RAW_BLOCK_REPLY = (
-    "I found sources but could not turn them into an answer. Ask me again, or ask something "
-    "narrower."
-)
-
-_FALLBACK_REPLY = (
-    "Sankalp is handling a lot of requests right now. Please try again in a moment."
-)
 
 def _frontline(text: str, subject: str):
     """The app's front line, for a channel message. None when it cannot run."""
@@ -290,12 +259,13 @@ async def _generate_with_history(owner_user_id: str, channel: str, sender_id: st
     # Last gate before it leaves for a person: a research payload is not a message. This runs
     # on every channel and does not depend on why the block was produced, which is the point -
     # the cause can change, and the guard still holds.
-    if looks_like_raw_research(reply):
+    reply, replaced_because = guard_reply(reply)
+
+    if replaced_because:
         logger.warning(
-            "channel reply was a raw research block and was replaced",
-            extra={"channel": channel, "length": len(reply)},
+            "channel reply was replaced before sending",
+            extra={"channel": channel, "reason": replaced_because, "length": len(reply)},
         )
-        reply = _RAW_BLOCK_REPLY
 
     # The same reply, said in this channel's own conventions. Sending the app's Markdown to
     # Instagram is how a channel shows raw asterisks to a customer, and a table does not
