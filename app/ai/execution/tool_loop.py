@@ -514,6 +514,50 @@ async def dispatch_tool(
     return {"ok": True, "result": data}
 
 
+async def _answer_from_tool_results(
+    message: str,
+    *,
+    executed: tuple[tuple[str, str], ...],
+    history: list[tuple[str, str]] | None,
+    extra_system_instruction: str,
+) -> str | None:
+    """Write the answer from what the tools returned, when the main provider cannot.
+
+    Returns None when Groq is not configured, so the caller re-raises the original error
+    rather than inventing a reply.
+    """
+
+    from app.ai.gateway.groq_service import generate_groq_reply, groq_available
+
+    if not groq_available():
+        return None
+
+    if executed:
+        lines = ["What the tools returned:", ""]
+        for name, output in executed:
+            lines.append(f"--- {name} ---")
+            lines.append(output)
+            lines.append("")
+        lines.append(
+            "Answer the user's question from this data. If it does not contain the answer, "
+            "say so plainly rather than guessing."
+        )
+        document_context = "\n".join(lines)
+    else:
+        document_context = ""
+
+    try:
+        return await generate_groq_reply(
+            message,
+            history=history,
+            document_context=document_context,
+            extra_system_instruction=extra_system_instruction,
+        )
+    except Exception:
+        logger.warning("Groq fallback failed inside the tool loop", exc_info=True)
+        return None
+
+
 async def run_tool_loop(
     user_id: str,
     conversation_id: str,
@@ -531,10 +575,9 @@ async def run_tool_loop(
         return None
 
     from app.ai.gateway.gemini_service import (
+        ModelBusyError,
         generate_gemini_function_call_reply,
-        run_with_provider_fallback,
     )
-    from app.ai.gateway.azure_openai_service import generate_azure_function_call_reply
 
     tokens = tuple(approval_tokens or ())
     write_done = {"value": False}
@@ -573,6 +616,11 @@ async def run_tool_loop(
             families=families,
         )
 
+    # Every tool result, in order, kept so the fallback can answer from what was actually
+    # found instead of guessing. Before this, a Gemini failure mid-loop meant the tool had
+    # run, the data existed, and the user got nothing.
+    executed: list[tuple[str, str]] = []
+
     async def execute_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if name == "find_tools":
             result = _find_tools_result(str(arguments.get("query") or ""), user_id)
@@ -597,6 +645,10 @@ async def run_tool_loop(
         )
         if name in _EMAIL_WRITE_TOOLS and result.get("ok") is True:
             write_done["value"] = True
+        try:
+            executed.append((name, json.dumps(result, ensure_ascii=False)[:4_000]))
+        except (TypeError, ValueError):
+            executed.append((name, str(result)[:4_000]))
         return result
 
     _shared = dict(
@@ -617,8 +669,25 @@ async def run_tool_loop(
         # policy for both instead of two defaults that happen to agree today.
         max_tool_rounds=_max_tool_rounds(),
     )
-    _azure_first = _azure_backend_enabled()
-    return await run_with_provider_fallback(
-        lambda: (generate_azure_function_call_reply if _azure_first else generate_gemini_function_call_reply)(message, **_shared),
-        lambda: (generate_gemini_function_call_reply if _azure_first else generate_azure_function_call_reply)(message, **_shared),
-    )
+    try:
+        return await generate_gemini_function_call_reply(message, **_shared)
+    except ModelBusyError:
+        # Gemini is at its limit. The tools may already have run, so the answer is written from
+        # what they returned rather than from nothing: dropping the results here is what made a
+        # fallback answer look like the assistant had never looked anything up.
+        answer = await _answer_from_tool_results(
+            message,
+            executed=tuple(executed),
+            history=history,
+            extra_system_instruction=extra_system_instruction,
+        )
+
+        if answer is None:
+            raise
+
+        logger.warning(
+            "tool loop fell back to Groq after %d tool result(s): %s",
+            len(executed),
+            message[:60],
+        )
+        return answer
