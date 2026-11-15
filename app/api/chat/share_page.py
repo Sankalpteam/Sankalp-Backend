@@ -134,7 +134,7 @@ def _page(title: str, inner: str) -> str:
 <body>
 <div class="banner">
   <span>Shared conversation • Read only</span>
-  <a href="https://indoone.ai" rel="noopener">Try Sankalp</a>
+  <a href="https://sankalp.indoworkspace.in" rel="noopener">Try Sankalp</a>
 </div>
 <main>
 {inner}

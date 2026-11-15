@@ -80,11 +80,21 @@ async def delete_conversation(request: Request, conversation_id: str) -> None:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-def _share_base_url() -> str:
-    """Where a share link points. Overridable so staging does not mint production links."""
-    base = os.getenv("INDOONE_SHARE_BASE_URL", "").strip() or "https://indoone.ai/share"
+def _share_base_url(request: Request) -> str:
+    """Where a share link points.
 
-    return base.rstrip("/")
+    INDOONE_SHARE_BASE_URL wins, because a proxy can hide the real host. When it is unset the
+    link is built from the request that asked for it, which is the host the user is already
+    talking to - the old default was a hardcoded indoone.ai, a domain that is not ours any
+    more, so every share link the app minted pointed at nothing.
+    """
+    configured = os.getenv("INDOONE_SHARE_BASE_URL", "").strip()
+
+    if configured:
+        return configured.rstrip("/")
+
+    base = str(request.base_url).rstrip("/")
+    return f"{base}/share"
 
 
 @router.post("/chat/threads/{thread_id}/share", response_model=ShareLinkResponse)
@@ -103,7 +113,7 @@ async def share_thread(request: Request, thread_id: str) -> ShareLinkResponse:
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    return ShareLinkResponse(share_url=f"{_share_base_url()}/{share_id}")
+    return ShareLinkResponse(share_url=f"{_share_base_url(request)}/{share_id}")
 
 
 @router.patch("/chat/threads/{thread_id}", response_model=ConversationActionResponse)
@@ -122,8 +132,8 @@ async def rename_thread(
     return ConversationActionResponse(conversation_id=thread_id, status=title)
 
 
-# A page, not an API: registered without the /api prefix in main.py, because the link
-# people paste into a chat is https://indoone.ai/share/<id>.
+# A page, not an API: registered without the /api prefix in main.py, because the link people
+# paste into a chat is <the host they are using>/share/<id>.
 page_router = APIRouter(tags=["share"])
 
 
