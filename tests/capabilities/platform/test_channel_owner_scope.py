@@ -73,3 +73,34 @@ def test_an_empty_trusted_list_trusts_nobody(monkeypatch) -> None:
 
     assert owner == "system:telegram"
     assert trusted is False
+
+
+def test_instagram_gets_the_same_rule(monkeypatch) -> None:
+    """Instagram was left out of the first fix, so the hole stayed open on one channel."""
+
+    monkeypatch.setenv("INDOONE_INSTAGRAM_AI_OWNER_USER_ID", "uid-owner")
+    monkeypatch.setenv("INDOONE_INSTAGRAM_AI_TRUSTED_SENDERS", "777")
+
+    stranger, stranger_trusted = channel_owner(
+        "instagram", "888", "INDOONE_INSTAGRAM_AI_OWNER_USER_ID"
+    )
+    friend, friend_trusted = channel_owner(
+        "instagram", "777", "INDOONE_INSTAGRAM_AI_OWNER_USER_ID"
+    )
+
+    assert stranger == "system:instagram" and stranger_trusted is False
+    assert friend == "uid-owner" and friend_trusted is True
+
+
+def test_a_single_connected_account_is_a_fallback_owner(monkeypatch) -> None:
+    """Instagram resolves its owner from the one connected account when the env is empty."""
+
+    monkeypatch.delenv("INDOONE_INSTAGRAM_AI_OWNER_USER_ID", raising=False)
+    monkeypatch.setenv("INDOONE_INSTAGRAM_AI_TRUSTED_SENDERS", "777")
+
+    owner, trusted = channel_owner(
+        "instagram", "777", "INDOONE_INSTAGRAM_AI_OWNER_USER_ID", fallback_owner="uid-single"
+    )
+
+    assert owner == "uid-single"
+    assert trusted is True

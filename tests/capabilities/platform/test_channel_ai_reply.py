@@ -63,6 +63,9 @@ def test_instagram_message_replies_with_indoon_ai(tmp_path, monkeypatch) -> None
     monkeypatch.setenv("INDOONE_CAPABILITY_DB", str(tmp_path / "capabilities.sqlite3"))
     monkeypatch.setenv("INDOONE_INSTAGRAM_AI_REPLY_ENABLED", "true")
     monkeypatch.setenv("INDOONE_INSTAGRAM_AI_OWNER_USER_ID", "indoone-user-1")
+    # The owner is reachable only from a trusted sender, so the customer in this test has to
+    # be one. Without the list the bot answers as itself, which is the safe default.
+    monkeypatch.setenv("INDOONE_INSTAGRAM_AI_TRUSTED_SENDERS", "ig-customer-1")
     monkeypatch.setenv("INDOONE_INSTAGRAM_ACCOUNT_ID", "ig-business-1")
 
     conversation_db = tmp_path / "conversations.sqlite3"
@@ -159,6 +162,7 @@ def test_instagram_reply_resolves_existing_connected_account_without_uid(tmp_pat
     monkeypatch.setenv("INDOONE_INSTAGRAM_AI_REPLY_ENABLED", "true")
     monkeypatch.delenv("INDOONE_INSTAGRAM_AI_OWNER_USER_ID", raising=False)
     monkeypatch.delenv("INDOONE_INSTAGRAM_ACCOUNT_ID", raising=False)
+    monkeypatch.setenv("INDOONE_INSTAGRAM_AI_TRUSTED_SENDERS", "ig-customer-7")
     store.upsert_integration_token(
         "instagram-account-owner",
         "instagram",

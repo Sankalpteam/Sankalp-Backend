@@ -4,7 +4,12 @@ import logging
 import os
 from typing import Any
 
-from app.capabilities.platform.channel_common import _enabled, _generate_with_history, _owner_user_id
+from app.capabilities.platform.channel_common import (
+    _enabled,
+    _generate_with_history,
+    _owner_user_id,
+    channel_owner,
+)
 from app.capabilities.connectors.store import (
     claim_channel_inbound_event,
     complete_channel_inbound_event,
@@ -22,12 +27,16 @@ async def process_instagram_messaging_event(
     if not _enabled("INDOONE_INSTAGRAM_AI_REPLY_ENABLED"):
         return False
 
-    owner_user_id = (
+    # The same rule as WhatsApp and Telegram: the owner is reachable only from a trusted
+    # sender. Instagram was left out of that fix, so a stranger who messaged the account could
+    # have read the owner's mail - the hole was closed on two channels and left open on the
+    # third.
+    _instagram_owner = (
         _owner_user_id("INDOONE_INSTAGRAM_AI_OWNER_USER_ID")
         or get_single_integration_token_user_id("instagram")
         or ""
     )
-    if not owner_user_id:
+    if not _instagram_owner:
         logger.error("Instagram AI reply needs exactly one connected account or an explicit owner")
         return False
 
@@ -43,6 +52,10 @@ async def process_instagram_messaging_event(
     text = str(message.get("text") or "").strip()
     if not sender_id or not recipient_id or sender_id == recipient_id or not message_id or not text:
         return False
+
+    owner_user_id, _trusted = channel_owner(
+        "instagram", sender_id, "INDOONE_INSTAGRAM_AI_OWNER_USER_ID", _instagram_owner
+    )
 
     expected_account_id = configured_account_id.strip()
     if expected_account_id and recipient_id != expected_account_id:

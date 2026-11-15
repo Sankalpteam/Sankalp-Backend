@@ -92,7 +92,9 @@ def _trusted_senders(name: str) -> frozenset[str]:
     return frozenset(item.strip() for item in raw.split(",") if item.strip())
 
 
-def channel_owner(channel: str, sender_id: str, env_name: str) -> tuple[str, bool]:
+def channel_owner(
+    channel: str, sender_id: str, env_name: str, fallback_owner: str = ""
+) -> tuple[str, bool]:
     """The account this message is answered as, and whether its connectors may be used.
 
     Returns the owner id and whether the sender is trusted. An untrusted sender is answered
@@ -100,7 +102,7 @@ def channel_owner(channel: str, sender_id: str, env_name: str) -> tuple[str, boo
     "connect your account" - never read someone else's.
     """
 
-    owner = _owner_user_id(env_name)
+    owner = _owner_user_id(env_name) or str(fallback_owner or "").strip()
 
     if not owner:
         return f"system:{channel}", False
