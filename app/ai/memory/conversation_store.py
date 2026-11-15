@@ -156,15 +156,25 @@ class ConversationStore:
             return [(str(row["role"]), str(row["content"])) for row in rows]
         return [(str(row["role"]), str(row["content"])) for row in reversed(rows)]
 
-    def list_for_user(self, user_id: str, limit: int = 50) -> list[dict[str, object]]:
+    def list_for_user(
+        self, user_id: str, limit: int = 50, offset: int = 0
+    ) -> list[dict[str, object]]:
+        """This user's threads, newest first.
+
+        `offset` exists because there was no way to ask for the next page: the list stopped at
+        fifty threads and the fifty-first was unreachable from the client, so a user with a long
+        history simply stopped seeing the older half of it.
+        """
         owner = self._require_user_id(user_id)
         if limit <= 0 or limit > 100:
             raise ValueError("limit must be between 1 and 100")
+        if offset < 0:
+            raise ValueError("offset cannot be negative")
         with self._connect() as connection:
             rows = connection.execute(
                 "SELECT conversation_id, status, created_at, updated_at, closed_at FROM conversations "
-                "WHERE user_id=? ORDER BY updated_at DESC LIMIT ?",
-                (owner, limit),
+                "WHERE user_id=? ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+                (owner, limit, offset),
             ).fetchall()
         return [dict(row) for row in rows]
 

@@ -49,11 +49,16 @@ class ConversationActionResponse(BaseModel):
 
 @router.get("/conversations", response_model=ConversationListResponse)
 async def list_conversations(
-    request: Request, limit: int = Query(default=50, ge=1, le=100)
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
 ) -> ConversationListResponse:
     user_id = current_user_id(request)
     return ConversationListResponse(
-        conversations=[ConversationSummary(**item) for item in _store.list_for_user(user_id, limit)]
+        conversations=[
+            ConversationSummary(**item)
+            for item in _store.list_for_user(user_id, limit, offset)
+        ]
     )
 
 
