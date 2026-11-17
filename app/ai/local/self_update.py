@@ -26,7 +26,7 @@ MAX_SUMMARY_CHARS = 2_000
 MAX_TOTAL_ITEMS = 400
 DEFAULT_ITEMS_PER_SOURCE = 12
 DEFAULT_TIMEOUT_SECONDS = 20
-USER_AGENT = "Indoone-Self-Update/1.0"
+USER_AGENT = "Sankalp-Self-Update/1.0"
 
 
 @dataclass(frozen=True)

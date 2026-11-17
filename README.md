@@ -49,7 +49,8 @@ The readiness endpoint checks that required configuration exists; it does not ma
 The trained model artifacts are loaded only from the private `Indoone-Model` GitHub Release configured by:
 
 ```text
-GITHUB_MODEL_REPOSITORY=indooneteam/Indoone-Model
+# Optional, and empty by default: no model repository exists in this organisation yet.
+GITHUB_MODEL_REPOSITORY=
 GITHUB_MODEL_RELEASE_TAG=indoone-model-v1
 GITHUB_MODEL_TOKEN=
 ```

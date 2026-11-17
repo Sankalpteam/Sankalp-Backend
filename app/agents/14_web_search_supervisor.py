@@ -544,7 +544,7 @@ def _default_fetcher() -> Callable[..., Any]:
         def blocking() -> str:
             request = urllib.request.Request(
                 url,
-                headers={"User-Agent": "IndooneBot/1.0 (+https://indoone.in)"},
+                headers={"User-Agent": "SankalpBot/1.0 (+https://sankalp.indoworkspace.in)"},
             )
             with urllib.request.urlopen(request, timeout=10) as response:
                 charset = response.headers.get_content_charset() or "utf-8"

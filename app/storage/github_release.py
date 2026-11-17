@@ -53,7 +53,7 @@ class GitHubReleaseStorage:
             "Accept": accept,
             "Authorization": f"Bearer {self.token}",
             "X-GitHub-Api-Version": "2026-03-10",
-            "User-Agent": "Indoone-Backend",
+            "User-Agent": "Sankalp-Backend",
         }
 
     def _release(self) -> dict[str, object]:

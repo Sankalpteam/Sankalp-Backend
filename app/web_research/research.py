@@ -186,7 +186,7 @@ class TavilyResearchProvider(ResearchProvider):
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "User-Agent": "Indoone-Research/1.0",
+            "User-Agent": "Sankalp-Research/1.0",
         }
         from app.web_research.quota import take_tavily_request_credit
 
@@ -362,7 +362,7 @@ class DuckDuckGoResearchProvider(ResearchProvider):
             raise ValueError("limit must be between 1 and 20")
 
         headers = {
-            "User-Agent": "Mozilla/5.0 (compatible; IndooneResearch/1.0)",
+            "User-Agent": "Mozilla/5.0 (compatible; SankalpResearch/1.0)",
             "Accept": "text/html",
         }
 
@@ -492,7 +492,7 @@ class WikidataResearchProvider(ResearchProvider):
 
         headers = {
             "Accept": "application/json",
-            "User-Agent": "Indoone-Research/1.0",
+            "User-Agent": "Sankalp-Research/1.0",
         }
         params = {
             "action": "wbsearchentities",
@@ -571,7 +571,7 @@ class OpenAlexResearchProvider(ResearchProvider):
         }
         headers = {
             "Accept": "application/json",
-            "User-Agent": "Indoone-Research/1.0",
+            "User-Agent": "Sankalp-Research/1.0",
         }
         async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=False) as client:
             response = await client.get(self._BASE_URL, params=params, headers=headers)
@@ -635,7 +635,7 @@ class CrossrefResearchProvider(ResearchProvider):
         }
         headers = {
             "Accept": "application/json",
-            "User-Agent": "Indoone-Research/1.0",
+            "User-Agent": "Sankalp-Research/1.0",
         }
         async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=False) as client:
             response = await client.get(self._BASE_URL, params=params, headers=headers)
@@ -871,7 +871,7 @@ class GoogleNewsRssResearchProvider(ResearchProvider):
         )
         headers = {
             "Accept": "application/rss+xml, application/xml;q=0.9, */*;q=0.8",
-            "User-Agent": "Indoone-Research/1.0",
+            "User-Agent": "Sankalp-Research/1.0",
         }
         async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=False) as client:
             response = await client.get(url, headers=headers)
