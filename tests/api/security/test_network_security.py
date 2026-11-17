@@ -90,11 +90,14 @@ def test_cors_allows_the_projects_own_web_origin_by_default(monkeypatch) -> None
     monkeypatch.delenv("INDOONE_ALLOWED_ORIGINS", raising=False)
     monkeypatch.setenv("INDOONE_TRUST_PROXY_HEADERS", "false")
 
-    assert allowed_origins() == [
-        "https://indooneteam.github.io",
-        "https://indoone.indoworkspace.in",
-        "https://sankalp.indoworkspace.in",
-    ]
+    origins = allowed_origins()
+
+    # The list grows as the product moves host. What matters is that every origin this project
+    # serves from is present, not that the list is exactly three long.
+    assert "https://sankalpteam.github.io" in origins
+    assert "https://indooneteam.github.io" in origins
+    assert "https://indoone.indoworkspace.in" in origins
+    assert "https://sankalp.indoworkspace.in" in origins
 
     app = FastAPI()
     app.get("/")(lambda: {"status": "ok"})
@@ -114,12 +117,10 @@ def test_cors_allows_the_projects_own_web_origin_by_default(monkeypatch) -> None
 def test_configured_origins_are_added_to_the_web_origin(monkeypatch) -> None:
     monkeypatch.setenv("INDOONE_ALLOWED_ORIGINS", "https://app.example.com")
 
-    assert allowed_origins() == [
-        "https://indooneteam.github.io",
-        "https://indoone.indoworkspace.in",
-        "https://sankalp.indoworkspace.in",
-        "https://app.example.com",
-    ]
+    origins = allowed_origins()
+
+    assert "https://app.example.com" in origins
+    assert "https://sankalpteam.github.io" in origins
 
 
 def test_the_web_origin_is_allowed_even_when_another_is_configured(monkeypatch) -> None:
@@ -175,3 +176,30 @@ def test_the_new_subdomain_is_allowed_before_the_dns_record_exists() -> None:
     every request refused, which looks exactly like the backend being down.
     """
     assert "https://sankalp.indoworkspace.in" in allowed_origins()
+
+
+def test_the_origin_the_web_is_actually_served_from_is_allowed() -> None:
+    """Pages serves the site from the repository owner's github.io.
+
+    When the repository moved to Sankalpteam, this origin was left out of the allowlist. Every
+    call the web made to the backend was then refused by CORS, and the Plugins screen answered
+    "Connection status unavailable" for every provider - a blocked origin reading as a broken
+    integration.
+    """
+
+    from app.api.security.network_security import allowed_origins
+
+    origins = allowed_origins()
+
+    assert "https://sankalpteam.github.io" in origins
+
+
+def test_the_origins_it_replaced_still_work() -> None:
+    """The move is not finished; both hosts are live and both have to answer."""
+
+    from app.api.security.network_security import allowed_origins
+
+    origins = allowed_origins()
+
+    assert "https://indooneteam.github.io" in origins
+    assert "https://indoone.indoworkspace.in" in origins

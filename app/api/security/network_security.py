@@ -28,6 +28,11 @@ _DEFAULT_ALLOWED_HOSTS = ("testserver", "localhost", "127.0.0.1")
 # - it is every request refused before it is sent, which looks exactly like the backend being
 # down.
 _WEB_APP_ORIGINS = (
+    # The repository was renamed Sankalpteam/Sankalp, so Pages serves the site from this
+    # origin. It was missing: every call the web made to the backend was refused by CORS, and
+    # the Plugins screen answered "Connection status unavailable" for every provider - which
+    # reads as a broken integration rather than a blocked origin.
+    "https://sankalpteam.github.io",
     "https://indooneteam.github.io",
     "https://indoone.indoworkspace.in",
     # The site is moving to the product's own name. Both are allowed while the DNS record
