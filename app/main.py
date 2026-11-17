@@ -23,6 +23,7 @@ from app.api.content.files import router as files_router
 from app.api.security.errors import error_response
 from app.api.connectors.integrations import router as integrations_router
 from app.plugins.zoho_mail.oauth_routes import router as zoho_mail_oauth_router
+from app.plugins.gmail.routes import router as gmail_router
 from app.plugins.zoho_mail.routes import router as zoho_mail_router
 from app.channels.instagram.api.instagram import router as instagram_router
 from app.channels.instagram.api.instagram_comments import router as instagram_comments_router
@@ -355,6 +356,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 # Register Zoho OAuth endpoints before the broader routers so their
 # exact callback path cannot be intercepted by another integration route.
 app.include_router(zoho_mail_oauth_router, prefix="/api")
+app.include_router(gmail_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
 app.include_router(conversations_router, prefix="/api")
 app.include_router(page_router)

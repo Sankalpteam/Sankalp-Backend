@@ -37,12 +37,13 @@ INTEGRATIONS: tuple[Integration, ...] = (
     Integration("github", "GitHub", "developer", "ready", "oauth2", ("read:user", "public_repo"), "https://github.com/login/oauth/authorize", bool(os.getenv("INDOONE_GITHUB_CLIENT_ID"))),
     Integration("zoho_mail", "Zoho Mail", "communication", "ready", "oauth2", ("ZohoMail.accounts.READ", "ZohoMail.folders.READ", "ZohoMail.messages.READ", "ZohoMail.messages.CREATE", "ZohoMail.messages.DELETE"), f"{os.getenv('INDOONE_ZOHO_ACCOUNTS_BASE_URL', 'https://accounts.zoho.in').rstrip('/')}/oauth/v2/auth", bool(os.getenv("INDOONE_ZOHO_CLIENT_ID"))),
     Integration("slack", "Slack", "communication", "ready", "oauth2", ("channels:read", "messages:read", "messages:write"), "https://slack.com/oauth/v2/authorize", bool(os.getenv("INDOONE_SLACK_CLIENT_ID"))),
+    Integration("gmail", "Gmail", "communication", "ready", "oauth2", ("https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/userinfo.email"), "https://accounts.google.com/o/oauth2/v2/auth", bool(os.getenv("INDOONE_GMAIL_CLIENT_ID"))),
 )
 
 _CLIENT_ID_ENV = {"github": "INDOONE_GITHUB_CLIENT_ID", "zoho_mail": "INDOONE_ZOHO_CLIENT_ID", "slack": "INDOONE_SLACK_CLIENT_ID"}
 _CLIENT_SECRET_ENV = {"github": "INDOONE_GITHUB_CLIENT_SECRET", "zoho_mail": "INDOONE_ZOHO_CLIENT_SECRET", "slack": "INDOONE_SLACK_CLIENT_SECRET"}
-_TOKEN_URLS = {"github": "https://github.com/login/oauth/access_token", "zoho_mail": f"{os.getenv('INDOONE_ZOHO_ACCOUNTS_BASE_URL', 'https://accounts.zoho.in').rstrip('/')}/oauth/v2/token", "slack": "https://slack.com/api/oauth.v2.access"}
-_PROBE_URLS = {"github": "https://api.github.com/user", "zoho_mail": f"{os.getenv('INDOONE_ZOHO_MAIL_API_BASE_URL', 'https://mail.zoho.in/api').rstrip('/')}/accounts", "slack": "https://slack.com/api/auth.test"}
+_TOKEN_URLS = {"github": "https://github.com/login/oauth/access_token", "zoho_mail": f"{os.getenv('INDOONE_ZOHO_ACCOUNTS_BASE_URL', 'https://accounts.zoho.in').rstrip('/')}/oauth/v2/token", "slack": "https://slack.com/api/oauth.v2.access", "gmail": f"{os.getenv('INDOONE_GMAIL_AUTH_BASE_URL', 'https://oauth2.googleapis.com').rstrip('/')}/token"}
+_PROBE_URLS = {"github": "https://api.github.com/user", "zoho_mail": f"{os.getenv('INDOONE_ZOHO_MAIL_API_BASE_URL', 'https://mail.zoho.in/api').rstrip('/')}/accounts", "slack": "https://slack.com/api/auth.test", "gmail": f"{os.getenv('INDOONE_GMAIL_API_BASE_URL', 'https://gmail.googleapis.com').rstrip('/')}/gmail/v1/users/me/profile"}
 
 
 def list_integrations() -> list[dict[str, object]]:
