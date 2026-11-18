@@ -7,10 +7,10 @@ import re
 import time
 from typing import Any, Iterable
 
-from app.ai.agents.agent_contracts import serialize_tool_result
-from app.ai.agents.agent_policy import deadline_failure, remaining_budget, should_retry
+from app.ai.execution.agent_contracts import serialize_tool_result
+from app.ai.execution.agent_policy import deadline_failure, remaining_budget, should_retry
 from app.ai.execution.approval import decide_tool
-from app.ai.agents.coding import build_code_tool_payload
+from app.ai.execution.coding import build_code_tool_payload
 from app.ai.agents.orchestrator import Plan, plan_request
 from app.ai.execution.tool_registry import get_tool_spec, tool_names
 from app.ai.execution.tools import ToolResult, run_tool
@@ -120,7 +120,7 @@ def _run_with_retry(tool: str, payload: str, deadline: float, user_id: str = "")
     if remaining <= 0: return deadline_failure(tool), 0
     result = invoke(remaining)
     retry_count = 0
-    while should_retry(result, retry_count, MAX_AGENT_RETRIES):
+    while should_retry(result, retry_count, MAX_AGENT_RETRIES, tool=tool):
         remaining = remaining_budget(deadline)
         if remaining <= 0: return deadline_failure(tool), retry_count
         retry_count += 1

@@ -8,10 +8,8 @@ MAX_CODE_LENGTH = 12_000
 SUPPORTED_LANGUAGES = frozenset({"python", "javascript", "typescript", "java", "kotlin", "c", "cpp", "go", "rust", "bash", "sql"})
 SUPPORTED_TRANSFORMS = frozenset({"normalize", "strip_trailing_whitespace", "ensure_final_newline"})
 
-# Markers that identify a language, most specific first. The deterministic agent
-# and the planner receive a bare code string with no language, while the coding
-# tools require one; this maps the obvious markers and treats anything
-# unrecognised as Python, the common case.
+# Shared coding-tool input normalization. Older agent clients may provide a bare
+# code string, whereas model-facing tools require a {language, code} object.
 _LANGUAGE_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("rust", ("fn ", "println!", "let mut ")),
     ("go", ("package main", "func ", "fmt.")),

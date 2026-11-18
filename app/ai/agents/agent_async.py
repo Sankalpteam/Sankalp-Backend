@@ -17,7 +17,7 @@ from app.ai.agents.agent import (
     _unresolved_chain_references,
     build_agent_steps,
 )
-from app.ai.agents.agent_policy import deadline_failure, remaining_budget, should_retry
+from app.ai.execution.agent_policy import deadline_failure, remaining_budget, should_retry
 from app.ai.execution.approval import decide_tool
 from app.ai.execution.tools import ToolResult, run_tool_async
 from app.capabilities.connectors.store import create_agent_run, update_agent_run
@@ -30,7 +30,7 @@ async def _run_with_retry_async(tool: str, payload: str, deadline: float, user_i
 
     result = await run_tool_async(tool, payload, max_runtime_seconds=remaining, user_id=user_id)
     retry_count = 0
-    while should_retry(result, retry_count, MAX_AGENT_RETRIES):
+    while should_retry(result, retry_count, MAX_AGENT_RETRIES, tool=tool):
         remaining = remaining_budget(deadline)
         if remaining <= 0:
             return deadline_failure(tool), retry_count
