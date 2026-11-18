@@ -31,7 +31,6 @@ from typing import Any, Deque, Optional
 _PRICING: dict[str, tuple[float, float, float]] = {
     "gemini-1.5-flash": (0.075, 0.30, 0.01875),
     "gemini-1.5-pro": (1.25, 5.00, 0.3125),
-    "azure-gpt-4o-mini": (0.15, 0.60, 0.075),
     # The models we actually run. Without these, every answer was priced at the fallback -
     # the most expensive card we know - so a flash-lite reply was costed as a pro one, about
     # sixteen times over, and free Groq usage was billed as if it were the priciest model on

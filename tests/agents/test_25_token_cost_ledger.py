@@ -35,8 +35,6 @@ def _fresh():
         ("gemini-1.5-flash", 1_000_000, 1_000_000, 0.375),
         ("gemini-1.5-pro", 1_000_000, 0, 1.25),
         ("gemini-1.5-pro", 0, 1_000_000, 5.00),
-        ("azure-gpt-4o-mini", 1_000_000, 0, 0.15),
-        ("azure-gpt-4o-mini", 0, 1_000_000, 0.60),
     ],
 )
 def test_the_cost_matches_the_rate_card(model: str, input_tokens: int, output_tokens: int, expected: float) -> None:
