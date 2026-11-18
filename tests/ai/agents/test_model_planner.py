@@ -38,7 +38,7 @@ def _arrange(monkeypatch, name, args):
     monkeypatch.setattr(gemini_service, "_get_tool_config", lambda: ("fake-key", "model"))
     monkeypatch.setattr(gemini_service, "_generation_config", lambda model: {})
     # Keep provider use completely mocked: no network and no real user data.
-    monkeypatch.setattr(gemini_service, "_post_generate_content", lambda *args: _return(name, args))
+    monkeypatch.setattr(gemini_service, "_post_generate_content", lambda *unused: _return(name, args))
     monkeypatch.setattr(model_planner.httpx, "AsyncClient", FakeClient)
 
 
