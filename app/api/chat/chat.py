@@ -11,6 +11,7 @@ from app.ai.gateway.ai_rules import EMAIL_PENDING_ACTION
 from app.ai.memory.conversation_store import ConversationStore
 from app.ai.memory.file_context import read_text_file
 from app.ai.gateway.service import generate_reply
+from app.ai.gateway.provider_policy import is_primary_backend_enabled
 from app.ai.execution.connector_authorization import authorize_connector
 import app.agents as _agents
 from app.ai.execution.text_match import subject_of as _subject_of
@@ -43,7 +44,6 @@ from app.ai.execution.executor_claim import claim as _claim_executor
 from app.ai.execution.reply_guard import guard_reply
 from app.ai.execution.tool_loop import run_tool_loop
 from app.ai.execution.turn_idempotency import claim_turn, mark_turn_replied, turn_status
-from app.api.security.dependencies import current_user_id
 from app.capabilities.connectors.store import (
     get_pending_email_action,
     get_pending_github_action,
@@ -387,8 +387,7 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
             document_context_parts.append(f"Content from attached text file {file_id}:\n{text[:100_000]}")
 
     # Only Gemini accepts image/PDF attachments; no local inference is loaded.
-    _model_backend = os.getenv("INDOONE_MODEL_BACKEND", "gemini").strip().casefold()
-    gemini_enabled = _model_backend == "gemini"
+    gemini_enabled = is_primary_backend_enabled()
     for attachment in attachments:
         filename = str(attachment["filename"])
         mime_type = str(attachment["mime_type"])

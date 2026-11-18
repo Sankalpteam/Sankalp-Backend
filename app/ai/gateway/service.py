@@ -9,17 +9,19 @@ import asyncio
 import logging
 import os
 
+from app.ai.gateway.provider_policy import configured_backend, is_primary_backend_enabled
+
 logger = logging.getLogger(__name__)
 
 
 def _gemini_backend_enabled() -> bool:
-    return os.getenv("INDOONE_MODEL_BACKEND", "gemini").strip().casefold() == "gemini"
+    return is_primary_backend_enabled()
 
 
 def ai_provider_status() -> dict[str, object]:
     """Report Gemini readiness without exposing API keys."""
     from app.ai.gateway import gemini_service
-    selected = os.getenv("INDOONE_MODEL_BACKEND", "gemini").strip().casefold()
+    selected = configured_backend()
     configured = bool(os.getenv("GEMINI_API_KEY", "").strip())
     model = os.getenv("GEMINI_MODEL", gemini_service._DEFAULT_MODEL).strip()
     return {

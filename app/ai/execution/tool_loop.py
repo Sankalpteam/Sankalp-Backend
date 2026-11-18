@@ -18,6 +18,7 @@ import os
 from typing import Any, Iterable
 
 from app.ai.execution.approval import decide_tool
+from app.ai.gateway.provider_policy import is_primary_backend_enabled
 from app.ai.gateway.ai_rules import (
     APPROVAL_REQUIRED,
     SEARCH_FAILED,
@@ -121,7 +122,7 @@ def email_read_tool_declarations() -> list[dict[str, Any]]:
     ]
 
 def _gemini_backend_enabled() -> bool:
-    return os.getenv("INDOONE_MODEL_BACKEND", "gemini").strip().casefold() == "gemini"
+    return is_primary_backend_enabled()
 
 
 # The tools the model is given without asking. Everything else in the catalogue is
