@@ -649,11 +649,13 @@ async def run_tool_loop(
                 )
             return result
         if name in _EMAIL_WRITE_TOOLS and write_done["value"]:
-            return {
+            denied = {
                 "ok": False,
                 "code": "MULTIPLE_WRITES_BLOCKED",
                 "message": "One email-changing operation is already pending for this message. Ask the user before starting another.",
             }
+            executed.append((name, json.dumps(denied, ensure_ascii=False)))
+            return denied
         spec = get_tool_spec(name)
         if spec is not None and spec.risk == "write":
             fingerprint = (
@@ -661,11 +663,15 @@ async def run_tool_loop(
                 json.dumps(arguments, sort_keys=True, separators=(",", ":"), default=str),
             )
             if fingerprint in attempted_writes:
-                return {
+                denied = {
                     "ok": False,
                     "code": "DUPLICATE_WRITE_BLOCKED",
                     "message": "This write was already attempted during this request. Verify its outcome before retrying.",
                 }
+                # The model's second call was refused. Record that refusal so
+                # a final "both succeeded" response cannot pass grounding checks.
+                executed.append((name, json.dumps(denied, ensure_ascii=False)))
+                return denied
             # Record *before* dispatch: a network timeout does not mean the
             # remote provider failed to apply a write.
             attempted_writes.add(fingerprint)
