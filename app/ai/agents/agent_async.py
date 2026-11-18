@@ -62,8 +62,16 @@ async def execute_agent_async(
     if user_id.strip():
         run_id = str(create_agent_run(user_id, normalized)["id"])
 
+    # Legacy explicit/structured requests keep their deterministic API contract.
+    # For previously unmatched live-data requests, let the provider SELECT a
+    # read-only tool under a bounded timeout. This returns a plan, never executes
+    # a remote operation; the authenticated LangGraph executor remains the gate.
     planned = build_agent_steps(normalized, user_id=user_id, contacts=contacts)[:MAX_AGENT_STEPS]
     deadline = time.monotonic() + MAX_AGENT_RUNTIME_SECONDS
+    if not planned:
+        from app.ai.agents.model_planner import plan_model_read_steps
+
+        planned = await plan_model_read_steps(normalized, user_id=user_id)
     result = await run_graph_execution(
         planned,
         user_id=user_id,

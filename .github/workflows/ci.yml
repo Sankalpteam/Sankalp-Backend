@@ -41,6 +41,9 @@ jobs:
       - name: Run tests
         run: python -m pytest -q -W error
 
+      - name: Measure LangGraph process RSS on GitHub runner (not AWS)
+        run: python -m scripts.ops.profile_langgraph_memory
+
       - name: Run production security smoke test
         run: python scripts/ops/security_smoke.py
   # The state store runs on SQLite by default and on Postgres when
