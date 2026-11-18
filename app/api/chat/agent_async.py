@@ -1,19 +1,23 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from app.ai.agents.agent import MAX_AGENT_STEPS
 from app.ai.agents.agent_async import execute_agent_async
-from app.api.content.capabilities import AgentRequest
+from app.api.content.capabilities import AgentRequest, _scoped_user
 
 router = APIRouter(tags=["capabilities"])
 
 
 @router.post("/agent")
-async def agent(request: AgentRequest) -> dict[str, object]:
+async def agent(request: AgentRequest, http_request: Request) -> dict[str, object]:
+    # A body-supplied user_id is NOT an identity claim. The auth middleware
+    # verified the bearer principal; reject mismatches before reading memories,
+    # executing connected tools, or writing an agent_run record.
+    scoped_user = _scoped_user(http_request, request.user_id)
     execution = await execute_agent_async(
         request.message,
-        user_id=request.user_id,
+        user_id=scoped_user,
         approved_tools=frozenset(request.approved_tools),
     )
     if not execution.steps and not execution.blocked_steps:
