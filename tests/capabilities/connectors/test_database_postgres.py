@@ -181,3 +181,21 @@ def test_channel_rules_are_listed_per_user_and_channel(store) -> None:
 
     assert [rule["rule_id"] for rule in rules] == [created["rule_id"]]
     assert store.list_channel_rules(user, "telegram") == []
+
+
+def test_chat_turn_idempotency_claims_use_postgres_unique_key(store) -> None:
+    """Postgres enforces one turn per user across separate DB connections."""
+    from app.ai.execution.turn_idempotency import claim_turn, mark_turn_replied, turn_status
+
+    user = _unique("turn-user")
+    turn = _unique("turn-id")
+    params = {"message": "create a GitHub branch", "conversation_id": "conversation-test"}
+
+    assert claim_turn(user, turn, **params) == "new"
+    assert claim_turn(user, turn, **params) == "duplicate"
+    assert claim_turn(user, turn, message="delete a GitHub branch", conversation_id="conversation-test") == "conflict"
+    assert turn_status(user, turn) == "received"
+    assert turn_status(_unique("other-user"), turn) is None
+    mark_turn_replied(user, turn)
+    assert turn_status(user, turn) == "replied"
+    assert claim_turn(user, turn, **params) == "duplicate"

@@ -61,6 +61,25 @@ channel integrations are independent of the retired training system.
 - \`GET /health/details\`: safe deployment status (never API secrets).
 - \`GET /api/observability\`: restricted model/tool counters when configured.
 
+### Duplicate-action safety
+
+Web and Android generate a fresh \`client_turn_id\` per user action, carried by
+the blocking and streaming chat endpoints. SQLite/Postgres atomically claims
+the ID using a **per-user unique key** before a tool executes.
+
+- The same ID returns HTTP 409 rather than replaying the request.
+- \`GET /api/chat/turns/{client_turn_id}\` lets an authenticated user inspect
+  \`received\` / \`replied\` status; this is not proof of a provider write.
+- A failed network connection may leave a record at \`received\`; the client
+  must inspect the conversation and connected app before a new action.
+- Request fingerprints are SHA-256 hashes rather than raw prompt text.
+- Missing \`client_turn_id\` on legacy clients remains supported, but lacks
+  this cross-request guard. Update both apps together with the backend.
+
+This is **durable turn admission, not exactly-once execution** across
+third-party providers. The existing approval and connector auth checks remain
+mandatory, and a user choosing a new turn ID can make a new request.
+
 ## Development
 
 ```bash
