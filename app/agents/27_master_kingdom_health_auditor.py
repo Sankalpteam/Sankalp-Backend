@@ -1,6 +1,6 @@
 """Agent 27 - the auditor: one answer to "is the system well?", and it never crashes.
 
-Twenty-six agents each guard a boundary. None of them can answer the question an operator
+A smaller collection of runtime services guards the active boundaries. None of them can answer the question an operator
 actually asks at 3 a.m., which is not "is the pool saturated" but **"is the system well, and
 if not, where do I look first"**.
 
@@ -268,15 +268,11 @@ def collect_from_fleet(now_epoch: Optional[float] = None) -> KingdomHealthSnapsh
         except Exception:
             return default
 
-    circuit = safe(lambda: load("06_circuit_breaker").state_of("gemini"), "CLOSED")
-
-    healer = safe(
-        lambda: {
-            "state": load("26_circuit_breaker_healer").CircuitBreakerHealer().get_telemetry().state,
-            "consecutive_successes": 0,
-        },
-        None,
-    )
+    # Provider readiness replaces the retired Azure circuit breaker/healer.
+    from app.ai.gateway.service import ai_provider_status
+    configured = safe(lambda: bool(ai_provider_status()["configuration_ready"]), False)
+    circuit = "CLOSED" if configured else "OPEN"
+    healer = None
 
     pressure = safe(lambda: load("24_lru_state_pruner").process_rss_mb(), 0.0)
     ram_pct = safe(lambda: min(99.0, pressure / 10.24), 0.0)
