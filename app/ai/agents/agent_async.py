@@ -1,3 +1,10 @@
+"""The /api/agent async executor delegates orchestration to LangGraph.
+
+This is an adapter preserving the old API response and DB run contract. The
+manual async step loop has been replaced by the official MIT LangGraph engine.
+The old heuristic *planner* remains until its model-driven replacement passes
+equivalent tool-routing and permission tests.
+"""
 from __future__ import annotations
 
 import time
@@ -10,15 +17,13 @@ from app.ai.agents.agent import (
     MAX_AGENT_RUNTIME_SECONDS,
     MAX_AGENT_STEPS,
     _bounded_approval_tokens,
-    _chain_payload,
     _load_memory_context,
     _serialize_result,
     _serialize_step,
-    _unresolved_chain_references,
     build_agent_steps,
 )
 from app.ai.execution.agent_policy import deadline_failure, remaining_budget, should_retry
-from app.ai.execution.approval import decide_tool
+from app.ai.execution.langgraph_orchestrator import run_graph_execution
 from app.ai.execution.tools import ToolResult, run_tool_async
 from app.capabilities.connectors.store import create_agent_run, update_agent_run
 
@@ -27,7 +32,6 @@ async def _run_with_retry_async(tool: str, payload: str, deadline: float, user_i
     remaining = remaining_budget(deadline)
     if remaining <= 0:
         return deadline_failure(tool), 0
-
     result = await run_tool_async(tool, payload, max_runtime_seconds=remaining, user_id=user_id)
     retry_count = 0
     while should_retry(result, retry_count, MAX_AGENT_RETRIES, tool=tool):
@@ -35,9 +39,6 @@ async def _run_with_retry_async(tool: str, payload: str, deadline: float, user_i
         if remaining <= 0:
             return deadline_failure(tool), retry_count
         retry_count += 1
-        # The user id must travel on the retry too, or a connector tool is refused
-        # by the authorization layer ("authenticated user is required") instead of
-        # being retried.
         result = await run_tool_async(tool, payload, max_runtime_seconds=remaining, user_id=user_id)
     return result, retry_count
 
@@ -54,77 +55,43 @@ async def execute_agent_async(
         return AgentExecution(message=message, steps=(), results=())
 
     approved = frozenset(approved_tools or ())
-    approval_tokens_tuple = _bounded_approval_tokens(approval_tokens)
-    memory_context = _load_memory_context(user_id, normalized)
+    tokens = _bounded_approval_tokens(approval_tokens)
+    memories = _load_memory_context(user_id, normalized)
+
     run_id: str | None = None
     if user_id.strip():
         run_id = str(create_agent_run(user_id, normalized)["id"])
 
-    planned_steps = build_agent_steps(normalized, user_id=user_id, contacts=contacts)[:MAX_AGENT_STEPS]
-    executable: list[Any] = []
-    blocked: list[Any] = []
-    results: list[ToolResult] = []
-    retry_counts: list[int] = []
+    planned = build_agent_steps(normalized, user_id=user_id, contacts=contacts)[:MAX_AGENT_STEPS]
     deadline = time.monotonic() + MAX_AGENT_RUNTIME_SECONDS
-
-    for position, step in enumerate(planned_steps):
-        if remaining_budget(deadline) <= 0:
-            blocked.extend(planned_steps[position:])
-            break
-
-        decision = decide_tool(step.tool, approved, approval_tokens_tuple, user_id=user_id)
-        if not decision.allowed:
-            blocked.append(step)
-            continue
-        if results and not results[-1].safe:
-            blocked.append(step)
-            continue
-
-        chain_results = tuple(results)
-        chained_payload = _chain_payload(step.payload, chain_results)
-        unresolved = _unresolved_chain_references(chained_payload, chain_results)
-        if unresolved:
-            blocked.append(step)
-            result = ToolResult(step.tool, f"Unresolved chain reference(s): {', '.join(unresolved)}", safe=False, retryable=False)
-            retry_count = 0
-        elif chain_results and chain_results[-1].truncated:
-            blocked.append(step)
-            result = ToolResult(step.tool, "Cannot chain from truncated tool output", safe=False, retryable=False)
-            retry_count = 0
-        else:
-            executable.append(step)
-            result, retry_count = await _run_with_retry_async(step.tool, chained_payload, deadline, user_id=user_id)
-
-        results.append(result)
-        retry_counts.append(retry_count)
-        if not result.safe:
-            blocked.extend(planned_steps[position + 1 :])
-            break
-
-    unsafe_result = any(not result.safe for result in results)
-    timed_out = bool(
-        blocked
-        and len(executable) + len(blocked) >= len(planned_steps)
-        and remaining_budget(deadline) <= 0
+    result = await run_graph_execution(
+        planned,
+        user_id=user_id,
+        approved_tools=approved,
+        approval_tokens=tokens,
+        deadline=deadline,
+        execute_with_retry=_run_with_retry_async,
     )
-    status = "timed_out" if timed_out else ("failed" if unsafe_result else ("blocked" if blocked and not results else "completed"))
+    steps = result["steps"]
+    blocked = result["blocked_steps"]
+    results = result["results"]
+    retries = result["retry_counts"]
+
+    unsafe = any(not item.safe for item in results)
+    timed_out = bool(blocked and len(steps) + len(blocked) >= len(planned) and remaining_budget(deadline) <= 0)
+    status = "timed_out" if timed_out else ("failed" if unsafe else ("blocked" if blocked and not results else "completed"))
+
     execution = AgentExecution(
-        message=normalized,
-        steps=tuple(executable),
-        results=tuple(results),
-        memories=memory_context,
-        blocked_steps=tuple(blocked),
-        retry_counts=tuple(retry_counts),
-        run_id=run_id,
+        message=normalized, steps=steps, results=results, memories=memories,
+        blocked_steps=blocked, retry_counts=retries, run_id=run_id,
     )
-
     if user_id.strip() and run_id is not None:
         update_agent_run(
             user_id=user_id,
             run_id=run_id,
             status=status,
             steps=[_serialize_step(step) for step in execution.steps],
-            results=[_serialize_result(result) for result in execution.results],
+            results=[_serialize_result(item) for item in execution.results],
             blocked_steps=[_serialize_step(step) for step in execution.blocked_steps],
             retry_counts=list(execution.retry_counts),
         )

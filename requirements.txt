@@ -18,3 +18,6 @@ psycopg[binary]>=3.2,<4.0
 python-docx>=1.2,<2.0
 openpyxl>=3.1,<4.0
 defusedxml>=0.7,<1.0
+
+# Official MIT LangGraph workflow engine; version 1.x from the vetted upstream template.
+langgraph>=1.0.2,<2.0
