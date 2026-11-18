@@ -114,6 +114,11 @@ async def plan_model_read_steps(message: str, *, user_id: str = "") -> tuple[Age
         arguments = call.get("args")
         if spec is None or spec.risk != "read" or spec.requires_approval or not isinstance(arguments, dict):
             continue
+        # /api/agent calls the core executor directly; reject model attempts to
+        # claim another user's identity or inject a fake approval token.
+        backend_only = {"user_id", "conversation_id", "original_message", "approval_token", "client_turn_id"}
+        if backend_only.intersection(arguments):
+            continue
         from app.ai.execution.tool_loop import _core_payload
         serialized = _core_payload(spec, arguments)
         if not serialized or len(serialized) > MAX_AGENT_PAYLOAD_LENGTH:

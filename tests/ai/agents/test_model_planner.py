@@ -104,3 +104,9 @@ def test_disconnected_connector_is_not_even_offered_to_the_model(monkeypatch):
         lambda user_id, name: SimpleNamespace(allowed=False),
     )
     assert asyncio.run(model_planner.plan_model_read_steps("list github branches", user_id="user-1")) == ()
+
+
+
+def test_model_planner_refuses_forged_backend_user_identity(monkeypatch):
+    _arrange(monkeypatch, "github_list_branches", {"repository": "owner/repo", "user_id": "victim"})
+    assert asyncio.run(model_planner.plan_model_read_steps("list github branches", user_id="user-1")) == ()

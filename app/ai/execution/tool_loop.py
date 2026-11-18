@@ -481,21 +481,22 @@ async def dispatch_tool(
                 "message": APPROVAL_REQUIRED,
             }
 
-    payload_arguments = dict(arguments)
-    # The authenticated identity is injected by the backend, never by the model.
+    # Model arguments are always untrusted. These fields belong exclusively to
+    # the authenticated backend; setdefault would preserve model-supplied values.
+    _backend_only = frozenset({
+        "user_id", "conversation_id", "original_message",
+        "approval_token", "client_turn_id",
+    })
+    payload_arguments = {key: value for key, value in arguments.items() if key not in _backend_only}
     if user_id.strip():
-        payload_arguments.setdefault("user_id", user_id)
-        # A GitHub write that needs confirmation is stored against the
-        # conversation, so the confirmation can find it again.
-        payload_arguments.setdefault("conversation_id", conversation_id)
-    # The user's own message decides whether an explicit write request still needs a
-    # confirmation. It is the user's wording, never the model's.
+        payload_arguments["user_id"] = user_id
+        payload_arguments["conversation_id"] = conversation_id
     if original_message.strip():
-        payload_arguments.setdefault("original_message", original_message)
+        payload_arguments["original_message"] = original_message
     if name in _TOKEN_IN_PAYLOAD:
         token = _first_token(approval_tokens)
         if token:
-            payload_arguments.setdefault("approval_token", token)
+            payload_arguments["approval_token"] = token
 
     payload = _core_payload(spec, payload_arguments)
     result = await run_tool_async(name, payload, user_id=user_id)
