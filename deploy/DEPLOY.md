@@ -92,3 +92,40 @@ sudo journalctl -u indoone-backend -n 50 --no-pager
 
 The first thing to check is that the service is reading the environment file at all: a unit
 without `EnvironmentFile=` starts and then fails on the first request that needs a key.
+
+
+## IMPORTANT: The one existing 2 GiB AWS server
+
+There is **one** shared 2 GiB AWS host, currently running the live main
+backend and its data services. Git branches are **not extra machines**. The
+LangGraph replacement must not run simultaneously as a second deployment on
+this host. Never run an additional LiteLLM proxy daemon until available RAM,
+CPU and database headroom are established and the release is approved.
+
+### Safe, read-only RAM check on the existing host
+
+The checks below do **not** switch branches, deploy, restart or print secrets:
+
+```bash
+cd /home/ubuntu/Indoone-Backend
+.venv/bin/python -m scripts.ops.memory_report --service indoone-backend
+free -m
+systemctl status indoone-backend --no-pager
+```
+
+The report includes host total/available RAM, process RSS, swap and (if
+available) cgroup usage. It does **not** measure independent PostgreSQL or
+all extra services: account for them using `ps` and `systemctl` too.
+**Do not disclose environment variables or keys in a diagnostic report.**
+
+For an *approved future single-host cutover*, add
+`INDOONE_SINGLE_HOST_RAM_MB=2048` in the existing server's
+private environment file. This enables a **single Uvicorn worker** guard, a
+default concurrency of 32, and a maximum allowed concurrency of 64. These are
+provisional safety settings, not a tested capacity guarantee. Measure p95
+latency, process RSS, DB load and any OOM events before enabling production.
+
+GitHub CI reports the isolated graph process footprint from
+`python -m scripts.ops.profile_langgraph_memory`.
+That **is not** production server RAM and is never a substitute for a live
+single-host measurement. **No automatic branch merge, deploy or service restart.**
