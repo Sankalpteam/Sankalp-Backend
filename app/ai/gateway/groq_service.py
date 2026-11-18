@@ -1,14 +1,9 @@
-"""Groq: the provider that answers when the other one is out of quota.
+"""Groq text-completion provider used as Sankalp's secondary AI service.
 
-Groq serves open-weight models on its own silicon, which makes it the fastest of the three,
-and its free tier is real: 30 requests a minute and 200,000 tokens a day on the gpt-oss models
-as of late 2026. That is not enough to be the main brain - a long conversation can spend 8,000
-tokens a minute on its own - but it is more than enough to keep the assistant answering when
-Gemini returns 429, which it did for two days and cost us every reply.
-
-The API is OpenAI-compatible, so this is one POST and no SDK. Rate limits come back as
-ModelBusyError, the same type the Gemini and Azure paths raise, so the existing fallback
-machinery treats all three the same way.
+The selected Groq model is served through an OpenAI-compatible HTTP interface;
+this does not invoke the OpenAI API or require Azure/OpenAI credentials.
+Model-selected tool execution is implemented separately in groq_tool_service.py,
+using the same authenticated backend executor as Gemini.
 """
 
 from __future__ import annotations

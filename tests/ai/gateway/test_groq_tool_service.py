@@ -163,3 +163,59 @@ def test_plain_chat_uses_no_tool(monkeypatch):
 
     assert _run(forbidden) == "Hello!"
     assert payloads[0]["tool_choice"] == "auto"
+
+
+def test_discovered_future_plugin_is_exposed_without_hardcoded_provider_names(monkeypatch):
+    """New tools join the registry and are made callable on the next model round."""
+    payloads = _provider(monkeypatch, [
+        {
+            "role": "assistant", "content": None,
+            "tool_calls": [_tool_call("find_tools", '{"query":"future capability"}')],
+        },
+        {
+            "role": "assistant", "content": None,
+            "tool_calls": [_tool_call("new_plugin", '{"item":"example"}')],
+        },
+        {"role": "assistant", "content": "The registered tool returned the item."},
+    ])
+    discovered = []
+    executed = []
+
+    def declarations():
+        tools = [{
+            "name": "find_tools",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {"query": {"type": "STRING"}},
+            },
+        }]
+        if discovered:
+            tools.append({
+                "name": "new_plugin",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {"item": {"type": "STRING"}},
+                },
+            })
+        return tools
+
+    async def execute(name, args):
+        executed.append(name)
+        if name == "find_tools":
+            discovered.append("new_plugin")
+            return {"ok": True, "result": {"tools": [{"name": "new_plugin"}]}}
+        assert name == "new_plugin"
+        assert args == {"item": "example"}
+        return {"ok": True, "result": "example"}
+
+    answer = asyncio.run(groq_tool_service.generate_groq_function_call_reply(
+        "Use my future capability",
+        history=[],
+        tool_declarations=declarations,
+        execute_tool=execute,
+        extra_system_instruction="",
+    ))
+    assert answer == "The registered tool returned the item."
+    assert executed == ["find_tools", "new_plugin"]
+    assert "new_plugin" not in [x["function"]["name"] for x in payloads[0]["tools"]]
+    assert "new_plugin" in [x["function"]["name"] for x in payloads[1]["tools"]]
