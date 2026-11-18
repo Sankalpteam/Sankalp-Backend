@@ -17,7 +17,6 @@ from fastapi.testclient import TestClient
 from app.ai.gateway import observability
 from app.ai.execution import tools as ai_tools
 from app.ai.gateway.gemini_service import _record_usage as record_gemini_usage
-from app.ai.gateway.azure_openai_service import _record_usage as record_azure_usage
 from app.main import app
 
 
@@ -94,19 +93,6 @@ def test_provider_reported_tokens_are_counted_and_accumulate() -> None:
     assert models["gemma-test"]["calls"] == 1
     assert models["gemma-test"]["input_tokens"] == 1050
     assert models["gemma-test"]["output_tokens"] == 210
-
-
-def test_azure_usage_is_read_from_its_own_shape() -> None:
-    @observability.measured_model_call("azure")
-    async def call() -> str:
-        observability.set_model("gpt-test")
-        record_azure_usage({"usage": {"prompt_tokens": 7, "completion_tokens": 3}})
-        return "ok"
-
-    asyncio.run(call())
-    models = observability.snapshot()["models"]
-    assert models["gpt-test"]["input_tokens"] == 7
-    assert models["gpt-test"]["output_tokens"] == 3
 
 
 def test_usage_without_a_payload_is_ignored_rather_than_guessed() -> None:

@@ -147,8 +147,8 @@ async def test_dispatch_rejects_unknown_tools() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_tool_loop_is_a_no_op_without_gemini(monkeypatch) -> None:
-    monkeypatch.delenv("INDOONE_MODEL_BACKEND", raising=False)
+async def test_run_tool_loop_is_a_no_op_for_unsupported_backend(monkeypatch) -> None:
+    monkeypatch.setenv("INDOONE_MODEL_BACKEND", "unsupported")
     assert await tool_loop.run_tool_loop("u1", "c1", "hello") is None
 
 

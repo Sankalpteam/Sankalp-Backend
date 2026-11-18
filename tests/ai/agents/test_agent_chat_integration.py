@@ -20,42 +20,6 @@ def _auth_headers(user_id: str = "user-one") -> dict[str, str]:
     return {"Authorization": f"Bearer {user}.{timestamp}.{signature}"}
 
 
-def test_chat_uses_model_for_tool_requests(monkeypatch) -> None:
-    monkeypatch.setenv("INDOONE_AUTH_SECRET", "x" * 32)
-
-    async def fake_execute_agent_async(message: str, **kwargs) -> AgentExecution:
-        assert message == "text stats: hello"
-        step = AgentStep(index=1, tool="text_stats", payload="hello")
-        return AgentExecution(
-            message=message,
-            steps=(step,),
-            results=(ToolResult("text_stats", "words: 1"),),
-        )
-
-    captured_history: list[tuple[str, str]] = []
-
-    async def fake_generate_reply(message: str, history=None, document_context="", extra_system_instruction: str = "") -> str:
-        captured_history.extend(history or [])
-        return "The trained model summarized the tool result."
-
-    monkeypatch.setattr("app.api.chat.chat.execute_agent_async", fake_execute_agent_async)
-    monkeypatch.setattr("app.api.chat.chat.generate_reply", fake_generate_reply)
-
-    with TestClient(app) as client:
-        response = client.post(
-            "/api/chat",
-            json={"message": "text stats: hello"},
-            headers=_auth_headers(),
-        )
-
-    assert response.status_code == 200
-    assert response.json()["reply"] == "The trained model summarized the tool result."
-    assert any(
-        role == "tool" and "words: 1" in content
-        for role, content in captured_history
-    )
-
-
 def test_an_email_request_reaches_the_email_handler(monkeypatch, tmp_path) -> None:
     """An email request is answered by the email handler, whatever the agent plans.
 
