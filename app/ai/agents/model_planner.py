@@ -29,7 +29,7 @@ def enabled() -> bool:
 
 async def plan_model_read_steps(message: str, *, user_id: str = "") -> tuple[AgentStep, ...]:
     """One model call proposes a registered read tool; result is never authorization."""
-    if not enabled() or not requires_tool_result(message):
+    if not enabled() or not user_id.strip() or not requires_tool_result(message):
         return ()
 
     # Use the provider's shortlist and function-call parser, not a new homemade
@@ -38,6 +38,7 @@ async def plan_model_read_steps(message: str, *, user_id: str = "") -> tuple[Age
         _families_for, _find_tools_result, model_tool_declarations,
     )
     from app.ai.gateway import gemini_service as provider
+    from app.ai.execution.connector_authorization import authorize_tool
 
     found: tuple[str, ...] = ()
     try:
@@ -62,7 +63,10 @@ async def plan_model_read_steps(message: str, *, user_id: str = "") -> tuple[Age
             continue
         spec = get_tool_spec(name)
         if spec is not None and spec.risk == "read" and not spec.requires_approval and spec.model_facing:
-            read_only.append(item)
+            # Do not even offer connected-account tools that this authenticated
+            # user cannot access. The graph executor rechecks at execution time.
+            if authorize_tool(user_id, spec.name).allowed:
+                read_only.append(item)
     if not read_only:
         return ()
     read_only = read_only[:12]

@@ -18,9 +18,14 @@ def test_model_read_planner_is_disabled_by_default(monkeypatch):
 
 def _arrange(monkeypatch, name, args):
     from app.ai.gateway import gemini_service
-    from app.ai.execution import tool_loop
+    from app.ai.execution import tool_loop, connector_authorization
+    from types import SimpleNamespace
 
     monkeypatch.setenv("INDOONE_AGENT_MODEL_PLANNER", "true")
+    monkeypatch.setattr(
+        connector_authorization, "authorize_tool",
+        lambda user_id, name: SimpleNamespace(allowed=True),
+    )
     monkeypatch.setattr(
         tool_loop, "_find_tools_result",
         lambda message, user_id: {"ok": True, "result": {"tools": [
@@ -81,3 +86,21 @@ def test_model_unregistered_tool_is_refused_without_dispatch(monkeypatch):
 def test_plain_greeting_does_not_call_model_even_when_enabled(monkeypatch):
     _arrange(monkeypatch, "github_list_branches", {"repository": "owner/repo"})
     assert asyncio.run(model_planner.plan_model_read_steps("hello", user_id="user-1")) == ()
+
+
+
+def test_anonymous_api_does_not_spend_provider_quota(monkeypatch):
+    _arrange(monkeypatch, "github_list_branches", {"repository": "owner/repo"})
+    assert asyncio.run(model_planner.plan_model_read_steps("list github branches", user_id="")) == ()
+
+
+def test_disconnected_connector_is_not_even_offered_to_the_model(monkeypatch):
+    from app.ai.execution import connector_authorization
+    from types import SimpleNamespace
+
+    _arrange(monkeypatch, "github_list_branches", {"repository": "owner/repo"})
+    monkeypatch.setattr(
+        connector_authorization, "authorize_tool",
+        lambda user_id, name: SimpleNamespace(allowed=False),
+    )
+    assert asyncio.run(model_planner.plan_model_read_steps("list github branches", user_id="user-1")) == ()
