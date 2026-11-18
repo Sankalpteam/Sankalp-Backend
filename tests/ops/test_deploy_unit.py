@@ -60,3 +60,13 @@ def test_the_deploy_doc_and_script_agree_with_the_unit() -> None:
         "the deploy script must install the unit from the repository, or a unit change "
         "never reaches the box"
     )
+
+
+
+def test_production_deploy_never_pulls_or_merges_feature_branches() -> None:
+    script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    assert 'if [ "$BRANCH" != "main" ]; then' in script
+    assert 'git symbolic-ref --quiet --short HEAD' in script
+    assert 'git status --porcelain' in script
+    assert 'git pull --ff-only origin "$BRANCH"' in script
+    assert 'git pull origin "$BRANCH"' not in script
