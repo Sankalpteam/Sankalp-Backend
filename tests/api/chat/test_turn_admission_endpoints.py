@@ -91,3 +91,47 @@ def test_blocking_then_stream_cannot_repeat_same_turn(monkeypatch):
     assert seen == []
     assert status.status_code == 200
     assert status.json()["status"] == "replied"
+
+
+
+def test_streamed_file_context_uses_authenticated_owner(monkeypatch):
+    seen = []
+
+    def read_owned_file(file_id, *, user_id=""):
+        seen.append((file_id, user_id))
+        return "owner supplied document"
+
+    async def fake_github(*args, **kwargs):
+        return "Verified fake result without calling any provider."
+
+    monkeypatch.setattr("app.api.chat.platform.read_text_file", read_owned_file)
+    monkeypatch.setattr("app.api.chat.platform.handle_github_chat_with_tools", fake_github)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat/stream",
+            json={"message": "summarize this file", "file_id": "file-example"},
+            headers=_auth("user-one"),
+        )
+    assert response.status_code == 200
+    assert seen == [("file-example", "user-one")]
+
+
+def test_streamed_file_context_denies_wrong_user(monkeypatch):
+    async def forbidden_tool(*args, **kwargs):
+        raise AssertionError("file access refusal must happen before tools")
+
+    def reject_wrong_owner(file_id, *, user_id=""):
+        assert user_id == "user-one"
+        raise PermissionError("file belongs to another user")
+
+    monkeypatch.setattr("app.api.chat.platform.read_text_file", reject_wrong_owner)
+    monkeypatch.setattr("app.api.chat.platform.handle_github_chat_with_tools", forbidden_tool)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat/stream",
+            json={"message": "summarize this file", "file_id": "someone-elses-file"},
+            headers=_auth("user-one"),
+        )
+    assert response.status_code == 403
