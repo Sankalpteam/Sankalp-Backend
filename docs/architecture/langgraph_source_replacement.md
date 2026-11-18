@@ -39,6 +39,14 @@ Sankalpa's backend with those imports would break its Gemini/Groq policy and
 user-isolation controls. Third-party code is imported under its license and
 adapted only at existing integration boundaries.
 
-Remaining migration: model-driven planning, safe persistent HITL resume,
-chat/stream tool-loop graph cutover, external connector testing, performance
-on a 2 GiB host. Do not merge while these remain incomplete.
+Updates in the fifth branch: synchronous `execute_agent`, Gemini function calls
+and Groq fallback function calls now also run through LangGraph StateGraphs.
+The existing `/api/agent` heuristic planner remains for stable legacy command
+contracts; an **opt-in, read-only, authenticated** Gemini fallback is available
+via `INDOONE_AGENT_MODEL_PLANNER=true`. This is not a total planner replacement.
+The official `ask_human` source is copied but deliberately not activated for
+irreversible writes without durable user-scoped checkpoints.
+
+See `docs/architecture/open_source_replacement_release_gate.md` for the
+remaining external dependencies, 2 GiB release blockers and exact CI status.
+**Do not merge while any required release gate is open.**

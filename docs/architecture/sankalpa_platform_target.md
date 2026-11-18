@@ -14,7 +14,9 @@ them until the release and rollback window are closed.
 | Production baseline | `backup/main-before-architecture-20261118` | `4dd38342ff4b0c7eb1ac8d836642e4a6c8202e1d` |
 | Prior cleanup work | `backup/cleanup-before-architecture-20261118` | `6dc0586ed1facc7a4ac2b6a0d18b5165d3af38ab` |
 
-Development stays on `fix/gemini-groq-tools-safe-cleanup-20261118`.
+Development for the open-source source-replacement work now stays on **the fifth branch**:
+`feat/open-source-langgraph-redesign-20261118`.
+The earlier `fix/gemini-groq-tools-safe-cleanup-20261118` branch is preserved separately.
 The `main` branch is not an automatic deployment destination for this work.
 
 Rollback procedure: freeze new writes, diagnose schema/data compatibility,

@@ -104,17 +104,23 @@ CPU and database headroom are established and the release is approved.
 
 ### Safe, read-only RAM check on the existing host
 
-The checks below do **not** switch branches, deploy, restart or print secrets:
+The new Python audit module is **only on the fifth development branch**.
+It is **not installed on the live main server yet**. Until an approved release,
+use these existing operating-system commands on the live host, which do **not**
+switch branches, deploy, restart or print secrets:
 
 ```bash
-cd /home/ubuntu/Indoone-Backend
-.venv/bin/python -m scripts.ops.memory_report --service indoone-backend
+pid="$(systemctl show indoone-backend --property=MainPID --value)"
 free -m
-systemctl status indoone-backend --no-pager
+ps -p "$pid" -o pid,rss,%mem,comm
+ps axo pid,rss,comm --sort=-rss | head -n 12
 ```
 
-The report includes host total/available RAM, process RSS, swap and (if
-available) cgroup usage. It does **not** measure independent PostgreSQL or
+Once the audited module is present on the host in an approved deployment,
+`.venv/bin/python -m scripts.ops.memory_report --service indoone-backend`
+adds cgroup metrics. It is **not a valid command against the current live main
+checkout**. The report includes host total/available RAM, process RSS, swap and
+(if available) cgroup usage. It does **not** measure independent PostgreSQL or
 all extra services: account for them using `ps` and `systemctl` too.
 **Do not disclose environment variables or keys in a diagnostic report.**
 
@@ -129,3 +135,7 @@ GitHub CI reports the isolated graph process footprint from
 `python -m scripts.ops.profile_langgraph_memory`.
 That **is not** production server RAM and is never a substitute for a live
 single-host measurement. **No automatic branch merge, deploy or service restart.**
+
+The approved production deployment script refuses non-`main` branches,
+checks its checkout branch and clean working tree, and uses `git pull --ff-only`.
+It cannot be used as a workaround to deploy the fifth feature branch.
