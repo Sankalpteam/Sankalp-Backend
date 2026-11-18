@@ -29,7 +29,7 @@ BUSY_MESSAGE = (
 
 
 class ModelBusyError(RuntimeError):
-    """The provider is at its limit right now; the caller should ask again shortly."""
+    """A transient provider outage or rate limit allows bounded fallback."""
 
 from app.web_research.grounding import (
     GroundedEvidence,
@@ -319,7 +319,7 @@ async def _post_generate_content(
             response = await client.post(url, headers=headers, json=payload)
         except httpx.HTTPError as exc:
             if last_attempt:
-                raise RuntimeError("Gemini request failed") from exc
+                raise ModelBusyError(BUSY_MESSAGE) from exc
             await asyncio.sleep(_RETRY_DELAYS[min(attempt, len(_RETRY_DELAYS) - 1)])
             continue
         if response.status_code not in _TRANSIENT_STATUSES or last_attempt:
@@ -349,6 +349,8 @@ async def _post_generate_content(
         )
         if response.status_code in {401, 403}:
             raise RuntimeError("Gemini API authentication failed")
+        if response.status_code in _TRANSIENT_STATUSES:
+            raise ModelBusyError(BUSY_MESSAGE)
         raise RuntimeError(f"Gemini API returned HTTP {response.status_code}")
 
     try:
