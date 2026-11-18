@@ -103,6 +103,13 @@ async def stream_chat(request: Request, body: StreamChatRequest) -> StreamingRes
                     extra_system_instruction=accounts,
                 )
         except Exception:
+            logger.exception("Sankalp streaming tool routing failed")
+            from app.ai.execution.tool_intent import requires_tool_result
+            if requires_tool_result(body.message):
+                raise HTTPException(
+                    status_code=503,
+                    detail="The requested tool operation could not be verified.",
+                )
             tool_reply = None
 
     # The same rule as /api/chat: a failed tool hands its reason to the model.

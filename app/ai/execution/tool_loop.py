@@ -515,6 +515,14 @@ async def dispatch_tool(
     return {"ok": True, "result": data}
 
 
+def _successful_tool_result(encoded: str) -> bool:
+    try:
+        result = json.loads(encoded)
+    except (TypeError, ValueError):
+        return False
+    return isinstance(result, dict) and result.get("ok") is True
+
+
 async def _answer_from_tool_results(
     message: str,
     *,
@@ -531,6 +539,14 @@ async def _answer_from_tool_results(
     from app.ai.gateway.groq_service import generate_groq_reply, groq_available
 
     if not groq_available():
+        return None
+
+    # A fallback must never turn an empty or failed tool run into a fake answer.
+    executed = tuple(
+        (name, output) for name, output in executed
+        if _successful_tool_result(output)
+    )
+    if not executed:
         return None
 
     if executed:
@@ -585,6 +601,8 @@ async def run_tool_loop(
     # Tools the model asked for with find_tools, so later rounds can call them.
     discovered: set[str] = set()
     families = _families_for(message)
+    from app.ai.execution.tool_intent import requires_tool_result
+    must_run_tool = requires_tool_result(message)
 
     # When the message matches no family, we look the tools up for the model instead of asking
     # it to. Before this the model had find_tools in hand and often did not use it, so a
@@ -662,17 +680,35 @@ async def run_tool_loop(
             _UNIFIED_SYSTEM_INSTRUCTION
             + ("\n\n" + extra_system_instruction.strip() if extra_system_instruction.strip() else "")
         ),
-        tool_mode="AUTO",
+        tool_mode="ANY" if must_run_tool else "AUTO",
         return_none_when_no_tool=True,
-        reuse_first_text_when_no_tool=True,
+        reuse_first_text_when_no_tool=not must_run_tool,
         # The round cap, passed explicitly rather than left to each provider's default.
         # Both providers already clamp it (1..6); naming it here is what makes it one
         # policy for both instead of two defaults that happen to agree today.
         max_tool_rounds=_max_tool_rounds(),
     )
     try:
-        return await generate_gemini_function_call_reply(message, **_shared)
+        answer = await generate_gemini_function_call_reply(message, **_shared)
+        if executed and not all(_successful_tool_result(output) for _, output in executed):
+            return "The tool operation failed or was incomplete. No unverified action is reported as complete."
+        if must_run_tool and not executed:
+            return "I couldn't verify the requested tool operation. No action is being reported as complete."
+        return answer
     except ModelBusyError:
+        # If Gemini fails before executing a tool, Groq must receive the same
+        # declarations and secure dispatcher, not a tool-free text prompt.
+        if not executed:
+            from app.ai.gateway.groq_service import groq_available
+            from app.ai.gateway.groq_tool_service import generate_groq_function_call_reply
+            if not groq_available():
+                raise
+            answer = await generate_groq_function_call_reply(message, **_shared)
+            if must_run_tool and not any(_successful_tool_result(output) for _, output in executed):
+                return "I couldn't verify the requested tool operation. No action is being reported as complete."
+            return answer
+        if any(not _successful_tool_result(output) for _, output in executed):
+            return "The tool operation failed or was incomplete. No unverified action is reported as complete."
         # Gemini is at its limit. The tools may already have run, so the answer is written from
         # what they returned rather than from nothing: dropping the results here is what made a
         # fallback answer look like the assistant had never looked anything up.
