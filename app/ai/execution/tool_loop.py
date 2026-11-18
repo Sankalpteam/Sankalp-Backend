@@ -594,6 +594,10 @@ async def run_tool_loop(
 
     tokens = tuple(approval_tokens or ())
     write_done = {"value": False}
+    # Once an external write has been attempted, the same invocation cannot be
+    # re-executed during this turn, even if Gemini/Groq repeats the tool call.
+    # This is request-scoped protection, not cross-request durable idempotency.
+    attempted_writes: set[tuple[str, str]] = set()
     # Tools the model asked for with find_tools, so later rounds can call them.
     discovered: set[str] = set()
     families = _families_for(message)
@@ -650,6 +654,22 @@ async def run_tool_loop(
                 "code": "MULTIPLE_WRITES_BLOCKED",
                 "message": "One email-changing operation is already pending for this message. Ask the user before starting another.",
             }
+        spec = get_tool_spec(name)
+        if spec is not None and spec.risk == "write":
+            fingerprint = (
+                name,
+                json.dumps(arguments, sort_keys=True, separators=(",", ":"), default=str),
+            )
+            if fingerprint in attempted_writes:
+                return {
+                    "ok": False,
+                    "code": "DUPLICATE_WRITE_BLOCKED",
+                    "message": "This write was already attempted during this request. Verify its outcome before retrying.",
+                }
+            # Record *before* dispatch: a network timeout does not mean the
+            # remote provider failed to apply a write.
+            attempted_writes.add(fingerprint)
+
         result = await dispatch_tool(
             user_id,
             conversation_id,
