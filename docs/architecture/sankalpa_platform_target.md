@@ -5,15 +5,17 @@ that all features are already shipped.
 
 ## Rollback anchors (2026-11-18)
 
-These GitHub references are frozen snapshots; **do not commit to them**.
+These backup branches point to the exact source commits shown below. GitHub branches
+are mutable refs, **not immutable tags**: do not force-push, commit to or delete
+them until the release and rollback window are closed.
 
 | Purpose | Branch | Source commit |
 | --- | --- | --- |
-| Production baseline | \`backup/main-before-architecture-20261118\` | \`4dd38342ff4b0c7eb1ac8d836642e4a6c8202e1d\` |
-| Prior cleanup work | \`backup/cleanup-before-architecture-20261118\` | \`6dc0586ed1facc7a4ac2b6a0d18b5165d3af38ab\` |
+| Production baseline | `backup/main-before-architecture-20261118` | `4dd38342ff4b0c7eb1ac8d836642e4a6c8202e1d` |
+| Prior cleanup work | `backup/cleanup-before-architecture-20261118` | `6dc0586ed1facc7a4ac2b6a0d18b5165d3af38ab` |
 
-Development stays on \`fix/gemini-groq-tools-safe-cleanup-20261118\`.
-The \`main\` branch is not an automatic deployment destination for this work.
+Development stays on `fix/gemini-groq-tools-safe-cleanup-20261118`.
+The `main` branch is not an automatic deployment destination for this work.
 
 Rollback procedure: freeze new writes, diagnose schema/data compatibility,
 select the known commit, restore using a **new** recovery branch/PR, run tests
@@ -40,7 +42,7 @@ third-party GitHub/email writes.
 
 ## Architecture boundaries
 
-\`\`\`text
+```text
 Web / Android / Future Business Client
             |
        FastAPI API
@@ -60,13 +62,13 @@ Web / Android / Future Business Client
 Separate future B2B API gateway
     Keys + model alias + usage ledger
     independent of user OAuth tokens
-\`\`\`
+```
 
 ## Migration sequence
 
 1. **Preserve and verify:** take rollback snapshots, inventory dependencies,
    enforce one primary-provider policy and lock down API contracts in tests.
-2. **Unify agents:** migrate \`/api/agent\` away from the old heuristic planner
+2. **Unify agents:** migrate `/api/agent` away from the old heuristic planner
    without breaking response contracts, permissions, structured tool outcomes,
    chain execution or existing coding utilities.
 3. **Tool and connector reliability:** verify OAuth ownership, token refresh,
