@@ -86,14 +86,6 @@ def quota_guard() -> ModuleType:
     return load("22_omnichannel_quota_guard")
 
 
-def lru_pruner() -> ModuleType:
-    return load("24_lru_state_pruner")
-
-
-def cost_ledger() -> ModuleType:
-    return load("25_token_cost_ledger")
-
-
 def kingdom_auditor() -> ModuleType:
     return load("27_master_kingdom_health_auditor")
 
