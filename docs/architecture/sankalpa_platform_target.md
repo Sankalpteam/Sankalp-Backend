@@ -40,6 +40,28 @@ third-party GitHub/email writes.
 - Target deployment: AWS with a **2 GiB RAM constraint**, to be *measured*
   with real traffic and concurrency; never assume a fixed memory footprint.
 
+## Deployment topology — one existing 2 GiB AWS server
+
+**There is exactly one AWS server allocated for the project right now.** The
+existing `main` production deployment runs on that **single 2 GiB RAM host**.
+The feature, cleanup, and backup branches are **Git references, not separate
+servers or staging deployments**.
+
+- Development and automated tests run in feature branches and GitHub Actions.
+  GitHub-hosted CI workers are not extra AWS servers and do not affect production.
+- Do **not** run the feature branch as a second app, start an extra LiteLLM
+  daemon, or deploy a staging stack **alongside live main on that same host**.
+  Doing so would compete for the only 2 GiB RAM and could interrupt users.
+- The existing live `main` deployment remains unchanged until a fully tested
+  replacement has explicit release approval. Any future migration uses a
+  controlled single-host cutover/rollback plan, not parallel deployments.
+- For resource validation first measure package memory in GitHub-hosted CI;
+  any meaningful **production-host** measurements and changeover require a
+  separately approved operational plan. CI is not proof that the 2 GiB host
+  can hold the new release under real traffic.
+- **One AWS server does not imply one process per Git branch:** branches are
+  alternate versions of the codebase. Both backup branches remain unchanged.
+
 ## Architecture boundaries
 
 ```text
