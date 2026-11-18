@@ -42,6 +42,8 @@ from app.ai.execution import limits as chat_limits
 from app.ai.execution.executor_claim import claim as _claim_executor
 from app.ai.execution.reply_guard import guard_reply
 from app.ai.execution.tool_loop import run_tool_loop
+from app.ai.execution.turn_idempotency import claim_turn, mark_turn_replied, turn_status
+from app.api.security.dependencies import current_user_id
 from app.capabilities.connectors.store import (
     get_pending_email_action,
     get_pending_github_action,
@@ -94,6 +96,9 @@ class ChatRequest(BaseModel):
     attachments: list[ChatMediaAttachment] = Field(default_factory=list, max_length=MAX_CHAT_ATTACHMENTS)
     # Server-issued approval tokens for data-changing tools the user has confirmed.
     approval_tokens: list[str] = Field(default_factory=list, max_length=32)
+    # One ID per user action, shared between /chat and /chat/stream.
+    # Legacy clients may omit it; new clients must keep it stable on retries.
+    client_turn_id: str | None = Field(default=None, min_length=8, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$")
 
 
 def _decode_chat_attachment(body: ChatRequest) -> dict[str, object] | None:
@@ -328,6 +333,21 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
     user_id = _principal(request)
     body.message = _frontline(request, user_id, body.message)
     _admit(request, user_id)
+    if body.client_turn_id:
+        if not user_id:
+            raise HTTPException(status_code=401, detail="authenticated user required for turn idempotency")
+        try:
+            status = claim_turn(
+                user_id, body.client_turn_id, message=body.message,
+                conversation_id=body.conversation_id, file_id=body.file_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if status != "new":
+            raise HTTPException(
+                status_code=409,
+                detail="This chat turn was already received. Its outcome may be uncertain; check the conversation or connected app before trying again.",
+            )
     is_new_conversation = body.conversation_id is None
     conversation_id = body.conversation_id or str(uuid4())
 
@@ -425,6 +445,12 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
                 )
             except (ValueError, PermissionError):
                 pass
+
+            if body.client_turn_id:
+                try:
+                    mark_turn_replied(user_id, body.client_turn_id)
+                except Exception:
+                    logger.warning("Unable to mark chat turn replied", exc_info=True)
 
             return ChatResponse(
                 conversation_id=conversation_id,
@@ -740,12 +766,35 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
     chips = synthesized.action_chips or action_chips.collected()
     action_chips.reset()
 
+    if body.client_turn_id:
+        try:
+            mark_turn_replied(user_id, body.client_turn_id)
+        except Exception:
+            logger.warning("Unable to mark chat turn replied", exc_info=True)
+
     return ChatResponse(
         conversation_id=conversation_id,
         reply=reply,
         sources=[ChatSource(title=source.title, url=source.url) for source in web_sources],
         action_chips=[ActionChip(label=chip["label"], action=chip["action"]) for chip in chips],
     )
+
+@router.get("/chat/turns/{client_turn_id}")
+async def chat_turn_status(request: Request, client_turn_id: str) -> dict[str, str]:
+    """Inspect the admission state without re-running any action.
+
+    'received' is deliberately ambiguous: the remote write may or may not
+    have completed. Clients must not turn it into an automatic retry.
+    """
+    user_id = current_user_id(request)
+    try:
+        state = turn_status(user_id, client_turn_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if state is None:
+        raise HTTPException(status_code=404, detail="chat turn not found")
+    return {"client_turn_id": client_turn_id, "status": state}
+
 
 @router.post("/code-edit-suggestion")
 async def code_edit_suggestion(request: Request, body: CodeEditSuggestionRequest) -> dict[str, object]:
