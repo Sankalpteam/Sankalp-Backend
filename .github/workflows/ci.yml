@@ -5,9 +5,11 @@ on:
     branches:
       - develop
       - main
+      - "feat/open-source-langgraph-redesign-*"
   pull_request:
     branches:
       - main
+      - "fix/gemini-groq-tools-safe-cleanup-*"
 
 jobs:
   test:
