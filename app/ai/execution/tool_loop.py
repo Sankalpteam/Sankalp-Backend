@@ -121,11 +121,7 @@ def email_read_tool_declarations() -> list[dict[str, Any]]:
     ]
 
 def _gemini_backend_enabled() -> bool:
-    return os.getenv("INDOONE_MODEL_BACKEND", "").strip().casefold() == "gemini"
-
-
-def _azure_backend_enabled() -> bool:
-    return os.getenv("INDOONE_MODEL_BACKEND", "").strip().casefold() == "azure"
+    return os.getenv("INDOONE_MODEL_BACKEND", "gemini").strip().casefold() == "gemini"
 
 
 # The tools the model is given without asking. Everything else in the catalogue is
@@ -588,7 +584,7 @@ async def run_tool_loop(
     Returns the model's grounded answer when it used a tool, or ``None`` when it
     chose no tool (so the caller can fall back to the plain answer path).
     """
-    if not (_gemini_backend_enabled() or _azure_backend_enabled()) or not message.strip():
+    if not _gemini_backend_enabled() or not message.strip():
         return None
 
     from app.ai.gateway.gemini_service import (

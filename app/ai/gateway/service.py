@@ -1,241 +1,37 @@
-"""Sankalp core entry point.
+"""Sankalp runtime gateway: Gemini primary, Groq secondary.
 
-Local Sankalp inference remains the default. Gemini chat can be enabled explicitly
-with INDOONE_MODEL_BACKEND=gemini; supported Gemma 4 models can then use the
-bounded free web-research tool when the question calls for current information.
+Plugins use the authenticated backend executor. No local inference, model weights,
+training pipeline, or Azure deployment is loaded by the production runtime.
 """
+from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import asyncio
-from pathlib import Path
 import logging
 import os
-
-from app.agents import circuit_breaker as _breaker
-import threading
-from typing import TYPE_CHECKING
-import time
-
-from app.ai.execution.history_window import history_window
-from app.ai.language.language_detection import detect_response_language
-from app.storage.github_release import GitHubReleaseStorageError, get_github_release_storage
-
 
 logger = logging.getLogger(__name__)
 
 
 def _gemini_backend_enabled() -> bool:
-    """Use Gemini only when explicitly selected; preserve local inference by default."""
-    return os.getenv("INDOONE_MODEL_BACKEND", "").strip().casefold() == "gemini"
-
-
-def _azure_backend_enabled() -> bool:
-    """Use Azure OpenAI as the primary provider when explicitly selected."""
-    return os.getenv("INDOONE_MODEL_BACKEND", "").strip().casefold() == "azure"
+    return os.getenv("INDOONE_MODEL_BACKEND", "gemini").strip().casefold() == "gemini"
 
 
 def ai_provider_status() -> dict[str, object]:
-    """Return safe provider/model configuration details for deploy readiness.
-
-    Never include the API key value. The Gemini model ID is safe to report and
-    makes it possible to verify that the deployed chat routes to the intended model.
-    """
-    if _azure_backend_enabled():
-        from app.ai.gateway import azure_openai_service
-        return {
-            "provider": "azure",
-            "model": azure_openai_service.azure_model_name(),
-            "configuration_ready": azure_openai_service.azure_configuration_ready(),
-            "api_key_configured": bool(os.getenv("AZURE_OPENAI_API_KEY", "").strip()),
-        }
-
-    if not _gemini_backend_enabled():
-        return {
-            "provider": "local",
-            "model": None,
-            "configuration_ready": True,
-            "api_key_configured": None,
-        }
-
+    """Report Gemini readiness without exposing API keys."""
     from app.ai.gateway import gemini_service
+    selected = os.getenv("INDOONE_MODEL_BACKEND", "gemini").strip().casefold()
+    configured = bool(os.getenv("GEMINI_API_KEY", "").strip())
     model = os.getenv("GEMINI_MODEL", gemini_service._DEFAULT_MODEL).strip()
-    api_key_configured = bool(os.getenv("GEMINI_API_KEY", "").strip())
     return {
-        "provider": "gemini",
-        "model": model or None,
-        "configuration_ready": bool(api_key_configured and model),
-        "api_key_configured": api_key_configured,
+        "provider": "gemini" if selected == "gemini" else (selected or "invalid"),
+        "model": model if selected == "gemini" else None,
+        "configuration_ready": bool(selected == "gemini" and configured and model),
+        "api_key_configured": configured,
     }
 
 
-if TYPE_CHECKING:
-    from app.ai.local.inference import LocalModelRuntime
-
-# Kept as a lazy injection point for tests and compatibility. The real class is
-# imported only inside _load_local_model_runtime() so Render startup stays light.
-LocalModelRuntime = None
-
-MODEL_DIR = Path("models/indoone-small")
-_checkpoint = MODEL_DIR / "indoone-small.pt"
-_tokenizer = MODEL_DIR / "tokenizer.json"
-# Keep model loading entirely request-driven. Constructing LocalAIEngine at import
-# time can eagerly load the full PyTorch checkpoint during Render startup, which
-# increases memory pressure and can cause the web process to restart before chat.
-_runtime: "LocalModelRuntime | None" = None
-_NEXT_MODEL_LOAD_ATTEMPT = 0.0
-_MODEL_LOAD_RETRY_SECONDS = 60.0
-_MODEL_MAX_NEW_TOKENS = 512
-# Serialize the artifact check/runtime load so concurrent chat requests cannot
-# trigger duplicate B2 downloads or duplicate model loads.
-_MODEL_LOAD_LOCK = threading.Lock()
-_MODEL_INFERENCE_LOCK = threading.Lock()
-_ARTIFACT_CHECK_COMPLETED = False
-
-
-def _ensure_model_artifacts(model_dir: Path) -> None:
-    """Load model artifacts only from the configured private Indoone-Model release."""
-    github_storage = get_github_release_storage()
-    if github_storage is None:
-        raise GitHubReleaseStorageError(
-            "Sankalp model serving requires GITHUB_MODEL_REPOSITORY, "
-            "GITHUB_MODEL_RELEASE_TAG, and GITHUB_MODEL_TOKEN"
-        )
-
-    artifacts = {
-        "indoone-small.pt": model_dir / "indoone-small.pt",
-        "tokenizer.json": model_dir / "tokenizer.json",
-    }
-    for filename, local_path in artifacts.items():
-        if local_path.exists():
-            continue
-        github_storage.download_file(filename, local_path)
-
-
-def _next_utc_midnight_timestamp() -> float:
-    """Back off failed remote model-artifact downloads until the next UTC day."""
-    now = datetime.now(timezone.utc)
-    tomorrow = (now + timedelta(days=1)).date()
-    midnight = datetime.combine(tomorrow, datetime.min.time(), tzinfo=timezone.utc)
-    return midnight.timestamp()
-
-
-def _load_local_model_runtime() -> "LocalModelRuntime | None":
-    """Load the trained checkpoint with a single-flight artifact download/load."""
-    global _runtime, _NEXT_MODEL_LOAD_ATTEMPT, _ARTIFACT_CHECK_COMPLETED
-
-    if _runtime is not None:
-        return _runtime
-
-    if not _MODEL_LOAD_LOCK.acquire(blocking=False):
-        logger.info("Sankalp model load already in progress; another request will reuse the loaded runtime")
-        return None
-
-    try:
-        # A concurrent request may have completed the model load while this
-        # request was waiting for the lock.
-        if _runtime is not None:
-            return _runtime
-
-        now = time.time()
-        if now < _NEXT_MODEL_LOAD_ATTEMPT:
-            return None
-
-        if not _ARTIFACT_CHECK_COMPLETED:
-            try:
-                _ensure_model_artifacts(MODEL_DIR)
-                if get_github_release_storage() is not None:
-                    logger.info("Sankalp model artifacts checked from private GitHub Release")
-                else:
-                    logger.info("Sankalp model artifact check completed from private Indoone-Model GitHub Release")
-            except GitHubReleaseStorageError as exc:
-                _NEXT_MODEL_LOAD_ATTEMPT = _next_utc_midnight_timestamp()
-                logger.error("Sankalp model artifact check failed: %s", exc)
-                return None
-
-            if not (_checkpoint.exists() and _tokenizer.exists()):
-                _NEXT_MODEL_LOAD_ATTEMPT = _next_utc_midnight_timestamp()
-                logger.error(
-                    "Sankalp local model artifacts are missing: checkpoint=%s tokenizer=%s",
-                    _checkpoint.exists(), _tokenizer.exists(),
-                )
-                return None
-
-            # From this point on, every request in this process uses the local
-            # artifacts and never re-checks/downloads them from remote storage.
-            _ARTIFACT_CHECK_COMPLETED = True
-
-        try:
-            # Import PyTorch/model code only when a chat request actually needs
-            # trained-model inference. This keeps Render startup memory low while
-            # retaining a testable lazy injection point.
-            runtime_factory = LocalModelRuntime
-            if runtime_factory is None:
-                from app.ai.local.inference import LocalModelRuntime as runtime_factory
-
-            _runtime = runtime_factory(_checkpoint, _tokenizer)
-            _NEXT_MODEL_LOAD_ATTEMPT = 0.0
-            logger.info("Sankalp local model runtime loaded successfully")
-        except Exception as exc:
-            _NEXT_MODEL_LOAD_ATTEMPT = now + _MODEL_LOAD_RETRY_SECONDS
-            logger.error("Sankalp local model runtime failed to load: %s", exc)
-            _runtime = None
-        return _runtime
-    finally:
-        _MODEL_LOAD_LOCK.release()
-
-
-def _generate_with_local_model(
-    runtime: "LocalModelRuntime",
-    context: str,
-    language: str,
-    temperature: float,
-    max_new_tokens: int,
-) -> str:
-    # Render Free provides a very small CPU budget. Serialize local inference so
-    # concurrent requests cannot multiply the model's CPU/memory pressure.
-    with _MODEL_INFERENCE_LOCK:
-        return runtime.generate(
-            context,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            language=language,
-        )
-
-
-class _LocalModelAnswerProvider:
-    """Generate every user-facing answer with the trained Sankalp model."""
-
-    async def generate(
-        self,
-        *,
-        system_instruction: str,
-        user_prompt: str,
-        temperature: float = 0.2,
-        max_output_tokens: int = _MODEL_MAX_NEW_TOKENS,
-    ) -> str:
-        runtime = _load_local_model_runtime()
-        if runtime is None:
-            raise RuntimeError("trained Sankalp local model is unavailable")
-
-        context = f"{system_instruction.strip()}\n\n{user_prompt.strip()}".strip()
-        try:
-            return await asyncio.to_thread(
-                _generate_with_local_model,
-                runtime,
-                context,
-                detect_response_language(user_prompt),
-                min(temperature, 0.7),
-                min(max_output_tokens, _MODEL_MAX_NEW_TOKENS),
-            )
-        except (RuntimeError, ValueError) as exc:
-            raise RuntimeError("trained Sankalp local model generation failed") from exc
-
-
-_model_answer_provider = _LocalModelAnswerProvider()
-
-
-class LocalAIService:
-    """Configured AI answer entry point; local inference remains the default."""
+class AIService:
+    """Gemini answers first; Groq takes over on documented busy errors."""
 
     async def generate(
         self,
@@ -246,98 +42,38 @@ class LocalAIService:
         media_attachments: list[dict[str, object]] | None = None,
         extra_system_instruction: str = "",
     ) -> str:
-        cleaned_message = message.strip()
-        if not cleaned_message:
+        if not message.strip():
             raise ValueError("message cannot be empty")
+        if not _gemini_backend_enabled():
+            raise RuntimeError("Unsupported provider: set INDOONE_MODEL_BACKEND=gemini")
 
-        # Keep the existing local-model path as the default. When explicitly configured,
-        # Google Gemini handles the chat turn and can call the bounded free web-search tool.
-        # The Azure flag is still honoured here so an old .env does not silently fall back to
-        # the local model - it just no longer routes to Azure, which we do not use.
-        if _gemini_backend_enabled() or _azure_backend_enabled():
-            from app.ai.gateway.gemini_service import generate_gemini_reply, run_with_provider_fallback
+        from app.ai.gateway.gemini_service import generate_gemini_reply, run_with_provider_fallback
+        from app.ai.gateway.groq_service import generate_groq_reply, groq_available
 
-            async def _reply_with(provider):
-                if media_attachments:
-                    return await provider(
-                        cleaned_message,
-                        history=history,
-                        document_context=document_context,
-                        media_attachments=media_attachments,
-                        extra_system_instruction=extra_system_instruction,
-                    )
-                if media_attachment is not None:
-                    return await provider(
-                        cleaned_message,
-                        history=history,
-                        document_context=document_context,
-                        media_attachment=media_attachment,
-                        extra_system_instruction=extra_system_instruction,
-                    )
-                return await provider(
-                    cleaned_message,
-                    history=history,
-                    document_context=document_context,
-                    extra_system_instruction=extra_system_instruction,
-                )
-
-            # Azure is out of the chain. We have no Azure key, so every fallback attempt
-            # spent a full timeout failing before the user saw anything - the worst of both
-            # worlds: no answer, and a slower one.
-            #
-            # What is left: Gemini first, and the breaker still decides whether to skip it
-            # after three consecutive failures so the next turn does not pay for the timeout
-            # again. Groq is the fallback that actually answers, because it has a free tier we
-            # can use and an OpenAI-compatible endpoint that needs no SDK.
-            from app.ai.gateway.groq_service import generate_groq_reply, groq_available
-
-            async def _gemini_call():
-                try:
-                    answer = await _reply_with(generate_gemini_reply)
-                except Exception as exc:
-                    _breaker.note_failure(_breaker.GEMINI, str(exc))
-                    raise
-                _breaker.note_success(_breaker.GEMINI)
-                return answer
-
-            async def _groq_call():
-                return await _reply_with(generate_groq_reply)
-
-            if groq_available():
-                return await run_with_provider_fallback(_gemini_call, _groq_call)
-
-            return await _gemini_call()
-
-        if media_attachment is not None or media_attachments:
-            raise RuntimeError(
-                "multimodal attachment processing requires INDOONE_MODEL_BACKEND=gemini or =azure"
+        async def invoke(provider):
+            kwargs = dict(
+                history=history,
+                document_context=document_context,
+                extra_system_instruction=extra_system_instruction,
             )
+            if media_attachments:
+                kwargs["media_attachments"] = media_attachments
+            elif media_attachment is not None:
+                kwargs["media_attachment"] = media_attachment
+            return await provider(message, **kwargs)
 
-        prompt_parts = [cleaned_message]
+        # The configured Groq text model cannot process images/PDFs. Never discard
+        # attachments to fabricate an answer on a provider failure.
+        if media_attachment is not None or media_attachments:
+            return await invoke(generate_gemini_reply)
 
-        if history:
-            history_lines = []
-            for role, content in history_window(history):
-                clean_content = " ".join(str(content).split()).strip()
-                if clean_content:
-                    history_lines.append(f"{role}: {clean_content[:4_000]}")
-            if history_lines:
-                prompt_parts.extend(["", "CONVERSATION HISTORY:", *history_lines])
+        if groq_available():
+            return await run_with_provider_fallback(
+                lambda: invoke(generate_gemini_reply),
+                lambda: invoke(generate_groq_reply),
+            )
+        return await invoke(generate_gemini_reply)
 
-        if document_context.strip():
-            prompt_parts.extend(["", "USER-PROVIDED DOCUMENT:", document_context.strip()[:100_000]])
-
-        if _model_answer_provider is None:
-            raise RuntimeError("trained Sankalp model provider is unavailable")
-        # Keep inference on the same prompt distribution used during SFT:
-        # <instruction> contains the user's request directly, without injecting
-        # a long runtime policy/system prefix that was not part of training.
-        return await _model_answer_provider.generate(
-            system_instruction="",
-            user_prompt="\n".join(prompt_parts),
-            temperature=0.0,
-            max_output_tokens=_MODEL_MAX_NEW_TOKENS,
-        )
 
 async def _close_stream(stream) -> None:
     """Close a provider generator, ignoring whatever it throws on the way out.
@@ -411,12 +147,10 @@ async def stream_generate(
                 next_label,
                 exc,
             )
-            _breaker.note_failure(_breaker.provider_for(label), str(exc))
             await _close_stream(stream)
             continue
 
         # The first chunk arrived: this provider is answering.
-        _breaker.note_success(_breaker.provider_for(label))
 
         if first:
             yield first
@@ -449,43 +183,16 @@ async def stream_generate(
 _STREAM_FIRST_CHUNK_SECONDS = 8.0
 
 
-def _azure_stream_configured() -> bool:
-    """Whether Azure OpenAI has enough configuration to be tried at all."""
-    return all(
-        os.getenv(name, "").strip()
-        for name in ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_DEPLOYMENT")
-    )
-
-
 def _gemini_stream_configured() -> bool:
     return bool(os.getenv("GEMINI_API_KEY", "").strip())
 
 
 def _provider_streams() -> list[tuple[str, object]]:
-    """The stream generators to try, in order: primary first, then the paid secondary.
-
-    The secondary is offered when it is *configured*, not only when it is the selected
-    backend - a Gemini deployment that has Azure credentials can still fail over, which is
-    the whole point of having them.
-    """
-    available: dict[str, tuple[str, object]] = {}
-
-    try:
-        if _gemini_stream_configured() and (_gemini_backend_enabled() or _azure_stream_configured()):
-            from app.ai.gateway.gemini_service import stream_gemini_reply
-
-            available[_breaker.GEMINI] = ("Gemini", stream_gemini_reply)
-
-        # Azure is not offered for streaming either: no key means the failover could only
-        # ever fail, after a timeout, which is slower than not trying.
-    except ImportError:  # a provider module that is not installed is simply not offered
+    """Gemini streams; Groq supplies verified blocking fallback if needed."""
+    if not _gemini_backend_enabled() or not _gemini_stream_configured():
         return []
-
-    # The order is the breaker's: Gemini first, Azure first only while Gemini is OPEN.
-    # This used to be an `if _azure_backend_enabled()` here, which meant a deployment that
-    # selected Azure never offered Gemini at all - a preference expressed twice, and
-    # differently in the two paths.
-    return [available[key] for key in _breaker.preferred_order() if key in available]
+    from app.ai.gateway.gemini_service import stream_gemini_reply
+    return [("Gemini", stream_gemini_reply)]
 
 
 def _provider_stream():
@@ -519,7 +226,7 @@ async def generate_reply(
     extra_system_instruction: str = "",
 ) -> str:
     if media_attachments:
-        return await LocalAIService().generate(
+        return await AIService().generate(
             message,
             history=history,
             document_context=document_context,
@@ -527,13 +234,13 @@ async def generate_reply(
             extra_system_instruction=extra_system_instruction,
         )
     if media_attachment is None:
-        return await LocalAIService().generate(
+        return await AIService().generate(
             message,
             history=history,
             document_context=document_context,
             extra_system_instruction=extra_system_instruction,
         )
-    return await LocalAIService().generate(
+    return await AIService().generate(
         message,
         history=history,
         document_context=document_context,

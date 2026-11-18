@@ -182,7 +182,7 @@ def _conversation_id(channel: str, sender_id: str) -> str:
 def _tool_loop_available() -> bool:
     """Whether a model backend with function calling is configured."""
 
-    return os.getenv("INDOONE_MODEL_BACKEND", "").strip().casefold() in {"gemini", "azure"}
+    return os.getenv("INDOONE_MODEL_BACKEND", "gemini").strip().casefold() == "gemini"
 
 
 def _instruction(owner_user_id: str) -> str:

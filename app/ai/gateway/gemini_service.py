@@ -94,22 +94,11 @@ def _get_tool_config() -> tuple[str, str]:
 
 
 async def run_with_provider_fallback(primary, fallback):
-    """Run the primary provider; when it is at its limit, run the same call on the other.
-
-    One bridge, two providers. The tools, the tool loop, the retry and the logging
-    all stay where they are - only the API call underneath changes. The primary is
-    Gemini unless INDOONE_MODEL_BACKEND forces Azure; when the primary reports that
-    it is at its limit (ModelBusyError), the same call is made on the other provider,
-    so the user gets an answer instead of an error.
-
-    The Azure service is imported inside the function: it imports this module for
-    the shared system instruction and error types, so a top-level import here would
-    be circular.
-    """
+    """Gemini primary; Groq fallback on recognized provider-busy responses only."""
     try:
         return await primary()
     except ModelBusyError:
-        logger.warning("The primary provider is at its limit; falling back to the other provider")
+        logger.warning("Gemini rate limited/unavailable; invoking Groq fallback")
         note_fallback()
         return await fallback()
 
