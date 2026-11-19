@@ -53,7 +53,7 @@ def _make_session(user_id: str) -> Any:
     from composio import Composio
 
     client = Composio(api_key=key)
-    return client.create(
+    return client.sessions.create(
         user_id=_identity(user_id),
         toolkits=["gmail"],
         tools={"gmail": {"enable": [_GMAIL_READ_SLUG]}},

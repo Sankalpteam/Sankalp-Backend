@@ -30,6 +30,7 @@ class FakeComposio:
 
     def __init__(self, *, api_key):
         assert api_key == "fake-credential"
+        self.sessions = SimpleNamespace(create=self.create)
 
     def create(self, *, user_id, toolkits, tools):
         assert toolkits == ["gmail"]

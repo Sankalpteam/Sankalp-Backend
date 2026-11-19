@@ -19,7 +19,8 @@ def main() -> None:
     from composio import Composio
     from composio.core.models.tool_router_session import ToolRouterSession
 
-    assert callable(getattr(Composio, "create", None)), "SDK create() contract changed"
+    sdk = Composio(api_key="ci-interface-smoke-not-a-real-key", timeout=5, max_retries=0)
+    assert callable(getattr(sdk.sessions, "create", None)), "SDK sessions.create() contract changed"
     assert callable(getattr(ToolRouterSession, "execute", None)), "SDK execute() contract changed"
     assert callable(getattr(ToolRouterSession, "authorize", None)), "SDK authorize() contract changed"
     peak = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)

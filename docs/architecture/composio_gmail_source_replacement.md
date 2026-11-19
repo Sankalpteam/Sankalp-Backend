@@ -4,7 +4,8 @@ Status: development feature branch only. Not deployed or connected to a real
 Gmail user. Existing Gmail, Zoho and GitHub integrations remain unchanged.
 
 Official upstream: https://github.com/ComposioHQ/composio (MIT)
-SDK contract: https://docs.composio.dev/docs/authentication and
+SDK contract: Composio.sessions.create(), ToolRouterSession.execute(),
+and https://docs.composio.dev/docs/authentication and
 https://github.com/ComposioHQ/composio/blob/next/python/README.md
 
 ## What is installed
