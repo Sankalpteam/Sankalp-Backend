@@ -524,6 +524,24 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         connector_id="instagram",
         capability="media.read",
     ),
+    # Optional Composio-managed Gmail account. Official SDK executes exactly
+    # GMAIL_FETCH_EMAILS; never expose tool_slug, account_id or user_id to model.
+    # This tool is hidden from model declarations unless explicitly enabled.
+    ToolSpec(
+        "composio_gmail_fetch_emails",
+        "Read at most 20 emails from Gmail connected separately through Composio.",
+        parameters=_object(
+            {
+                "query": {"type": "STRING", "description": "Optional Gmail search query."},
+                "max_results": {"type": "INTEGER", "description": "Maximum emails, 1 to 20."},
+            },
+        ),
+        risk="read",
+        requires_approval=False,
+        categories=("email", "external"),
+        module="app.ai.execution.composio_bridge",
+    ),
+
     # ---- Facebook --------------------------------------------------------- #
     # ---- Canva ------------------------------------------------------------ #
     # ---- Local helpers ---------------------------------------------------- #

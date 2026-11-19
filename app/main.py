@@ -22,6 +22,7 @@ from app.api.content.documents import router as documents_router
 from app.api.content.files import router as files_router
 from app.api.security.errors import error_response
 from app.api.connectors.integrations import router as integrations_router
+from app.api.connectors.composio_gmail import router as composio_gmail_router
 from app.plugins.zoho_mail.oauth_routes import router as zoho_mail_oauth_router
 from app.plugins.gmail.routes import router as gmail_router
 from app.plugins.zoho_mail.routes import router as zoho_mail_router
@@ -373,6 +374,7 @@ app.include_router(voice_session_router, prefix="/api")
 app.include_router(vibe_router, prefix="/api")
 app.include_router(approvals_router, prefix="/api")
 app.include_router(integrations_router, prefix="/api")
+app.include_router(composio_gmail_router, prefix="/api")
 app.include_router(zoho_mail_router, prefix="/api")
 app.include_router(telegram_router, prefix="/api")
 app.include_router(whatsapp_router, prefix="/api")

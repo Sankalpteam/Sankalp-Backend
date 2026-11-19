@@ -268,6 +268,10 @@ def model_tool_declarations(
         wanted_names |= _connected_read_tools(str(user_id).strip())
 
     def wanted(spec: Any) -> bool:
+        if spec.name == "composio_gmail_fetch_emails":
+            from app.ai.execution.composio_bridge import enabled
+            if not user_id.strip() or not enabled():
+                return False
         # A tool the model cannot have the input for is not offered at all: the
         # contact tools need a client-supplied snapshot the model must never invent.
         if not getattr(spec, "model_facing", True):
@@ -344,6 +348,12 @@ async def dispatch_tool(
     approval_tokens: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     """Run one model-chosen tool and return a JSON-able result for the model."""
+    if name == "composio_gmail_fetch_emails":
+        from app.ai.execution.composio_bridge import gmail_read
+
+        # The authenticated backend user, never an argument sent by the model.
+        return await gmail_read(user_id, arguments)
+
     if name in _EMAIL_TOOL_NAMES:
         from app.plugins.email.email_tools import execute_email_tool
 
