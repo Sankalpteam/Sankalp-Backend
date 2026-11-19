@@ -20,6 +20,8 @@ or deploys a second server, database, LiteLLM daemon or connector stack.
 | Single-host deployment guards | `scripts/ops/run_server.py`, `scripts/ops/deploy.sh` | Built + CI-tested on feature branch, **not active on live AWS** |
 | RAM measurement | `scripts/ops/memory_report.py`, `profile_langgraph_memory.py` | Offline tools + CI instrumentation, **NOT AWS measurement** |
 | Original upstream attribution | `third_party/licenses/fastapi-langgraph-template.LICENSE` | MIT license preserved |
+| Optional Composio Gmail native adapter | `app/ai/execution/composio_bridge.py`, `requirements-composio.txt` | SDK 0.33.0 CI-tested; live account not verified, flag OFF |
+| Optional official MCP v2 client | `app/ai/execution/composio_mcp.py`, `requirements-mcp.txt` | Upstream SDK 2.3.0 CI-tested, strict one-Gmail-read allowlist; flag OFF |
 
 The official LangGraph package runs actual upstream code; the provider-specific
 data adapters are local integrations, not a complete vendoring of third-party
@@ -40,10 +42,16 @@ template repos. Never claim 100% replacement just because tests are green.
    existing Gmail/Zoho/GitHub OAuth credentials or transfer connected account
    control to a third party** without a separate data-custody/security decision.
    Existing server-side encrypted, user-scoped connectors remain authoritative.
-   The official self-hostable MCP Python SDK
-   (https://github.com/modelcontextprotocol/python-sdk) is an alternative to
-   evaluate **in the existing FastAPI process** under authenticated routing,
-   not an extra 2 GiB server. No remote MCP endpoint is exposed yet.
+   The official MCP Python SDK v2.3.0
+   (https://github.com/modelcontextprotocol/python-sdk) is now used by an
+   **optional outbound client** inside the existing FastAPI process. It connects
+   to a per-authenticated-user Composio session and can invoke only
+   GMAIL_FETCH_EMAILS, with read-only direct-tool configuration, verified
+   credential destination, strict tool-list verification and bounded output.
+   The feature defaults OFF; no arbitrary MCP tool execution is enabled, no
+   incoming public MCP endpoint is exposed and no additional AWS service runs.
+   Real user consent, SDK execution and Composio service agreements remain
+   release blockers.
 3. **LiteLLM B2B proxy/virtual keys**: The LiteLLM core is MIT-licensed; some
    enterprise paths use a different license
    (https://github.com/BerriAI/litellm/blob/main/LICENSE).
@@ -74,8 +82,10 @@ template repos. Never claim 100% replacement just because tests are green.
 ## Single-host rollout gate
 
 - [ ] Read-only `free -m` + process RSS + database memory survey on live AWS.
-- [ ] CI optional-dependency size/RSS tests (separate GitHub runner), with measured
-      maximum concurrency and peak resources under actual workload.
+- [x] CI isolated **import** RSS for optional Composio 0.33.0 and MCP 2.3.0:
+      MCP+Composio SDK peak ~194 MiB on GitHub Actions, not the live AWS host.
+- [ ] Measure real 2 GiB **combined** production RSS, model + database load
+      and concurrency before enabling any optional SDK.
 - [ ] Authenticate and run model selection against the user's *test* Gemini
       quota; keep disabled unless provider tool schemas and cost are verified.
 - [ ] Audit source licenses and data custody before Composio / LiteLLM activation.
@@ -87,3 +97,14 @@ No feature branch is merged by this workflow. The production deployment script
 now refuses a non-`main` branch and uses **fast-forward-only**, preventing a
 `git pull origin feature` from implicitly merging a feature into the live
 main checkout. The two backup branches and earlier cleanup branch are unchanged.
+
+## Official MCP client source checkpoint — 2026-11-19
+
+- Latest CI: https://github.com/Sankalpteam/Sankalp-Backend/actions/runs/44471087745
+  (2,251 passed; 20 skipped; MCP SDK, Composio SDK, PostgreSQL and security smoke green).
+- Changed only `feat/open-source-langgraph-redesign-20261118`. Native Gmail, GitHub and Zoho OAuth/token stores remain authoritative.
+- The MCP path is OFF by default and does not start a daemon. It is an additional
+  **in-process client**, not a full generic MCP connector marketplace and not a
+  replacement for OAuth consent.
+- Live provider reads, opt-in rollout, actual AWS server memory and Web/Android E2E remain pending.
+- No merge, production deploy, server restart or changes to main/backups.
