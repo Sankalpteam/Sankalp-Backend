@@ -145,6 +145,11 @@ async def gmail_read(user_id: str, arguments: dict[str, Any]) -> dict[str, Any]:
         user = _identity(user_id)
         del user
         safe_arguments = _bounded_arguments(arguments)
+        # Optional official MCP transport, without exposing arbitrary MCP tools.
+        from app.ai.execution.composio_mcp import enabled as mcp_enabled
+        if mcp_enabled():
+            from app.ai.execution.composio_mcp import read_gmail_via_mcp
+            return await _call_bounded(read_gmail_via_mcp, user_id, safe_arguments)
         return await _call_bounded(_read, user_id, safe_arguments)
     except ValueError:
         return {"ok": False, "code": "COMPOSIO_INVALID_REQUEST"}

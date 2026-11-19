@@ -47,3 +47,27 @@ route; native Gmail OAuth tokens cannot silently be transferred to Composio.
   can be enabled on the ONE production host.
 - No Composio write tools, arbitrary MCP remote tools or autonomous OAuth
   handoff are permitted in this checkpoint.
+
+
+## Optional official MCP client transport (separate opt-in)
+
+- Source: https://github.com/modelcontextprotocol/python-sdk, MIT licensed,
+  `mcp==2.3.0`. Uses upstream `ClientSession`,
+  `streamable_http_client` and `httpx2` transport with the user's
+  Composio-hosted session.
+- Install `requirements-mcp.txt` **only** after measured one-host capacity.
+  Enable both `INDOONE_COMPOSIO_GMAIL_READ_ENABLED=true` and
+  `INDOONE_COMPOSIO_MCP_GMAIL_READ_ENABLED=true` after explicit consent.
+- The adapter never starts a server: it is a client within the existing process.
+- The model cannot choose an MCP URL, account, slug, connector, headers, or
+  arbitrary tool. The Composio session is scoped to the authenticated user,
+  direct-tools-only, with sandbox, proxy and auto connection management off.
+- MCP tool listing must equal exactly GMAIL_FETCH_EMAILS and the returned
+  structured result must not be flagged as an error. Other/meta/write tools
+  abort before execution.
+- No secrets or user messages are sent to unapproved URL origins. The SDK
+  additionally refuses to attach Composio credentials across origins.
+- Synthetic tests are not real hosted MCP read evidence. Live Composio consent,
+  SDK operation, billing and memory remain pending.
+
+No API key, OAuth token or user ID may be committed to the repository.

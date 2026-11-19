@@ -106,3 +106,22 @@ jobs:
         run: python -m pip check
       - name: Import and measure official Composio SDK (CI only)
         run: python -m scripts.ops.profile_composio_sdk
+
+  # Official MCP Python SDK v2 is optional and measured on a CI runner.
+  # No second service or deployment on the single production AWS 2 GiB host.
+  mcp-sdk:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feat/open-source-langgraph-redesign-')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install Composio and official MCP SDK
+        run: python -m pip install -r requirements-composio.txt -r requirements-mcp.txt
+      - name: Verify optional dependency consistency
+        run: python -m pip check
+      - name: Check real MCP ClientSession and measure import RSS
+        run: python -m scripts.ops.profile_mcp_sdk

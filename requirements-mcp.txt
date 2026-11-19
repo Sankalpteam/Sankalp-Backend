@@ -1,0 +1,3 @@
+# Optional MIT-licensed upstream MCP Python SDK v2 (no CLI/extra daemon).
+# Installed only for the Composio MCP read transport after approved host RAM test.
+mcp==2.3.0
