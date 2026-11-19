@@ -26,7 +26,7 @@ class FakeSession:
 
 
 class FakeComposio:
-    sessions = []
+    created = []
 
     def __init__(self, *, api_key):
         assert api_key == "fake-credential"
@@ -36,13 +36,13 @@ class FakeComposio:
         assert toolkits == ["gmail"]
         assert tools == {"gmail": {"enable": ["GMAIL_FETCH_EMAILS"]}}
         obj = FakeSession(user_id)
-        self.sessions.append(obj)
+        type(self).created.append(obj)
         return obj
 
 
 @pytest.fixture(autouse=True)
 def prepare(monkeypatch):
-    FakeComposio.sessions = []
+    FakeComposio.created = []
     monkeypatch.delenv("COMPOSIO_API_KEY", raising=False)
     monkeypatch.delenv("INDOONE_COMPOSIO_GMAIL_READ_ENABLED", raising=False)
     monkeypatch.setitem(sys.modules, "composio", SimpleNamespace(Composio=FakeComposio))
@@ -56,7 +56,7 @@ def enable(monkeypatch):
 @pytest.mark.asyncio
 async def test_disabled_no_sdk_session_or_model_declaration():
     assert (await composio_bridge.gmail_read("user-1", {}))["code"] == "COMPOSIO_DISABLED"
-    assert FakeComposio.sessions == []
+    assert FakeComposio.created == []
     assert "composio_gmail_fetch_emails" not in [
         item["name"] for item in tool_loop.model_tool_declarations("user-1", full=True)
     ]
@@ -70,15 +70,15 @@ async def test_gmail_read_uses_authenticated_user_and_fixed_read_only_slug(monke
         {"query": "invoice", "max_results": 3, "user_id": "other", "tool_slug": "GMAIL_SEND_EMAIL", "account_id": "other"},
     )
     assert result["ok"] is True
-    session = FakeComposio.sessions[0]
+    session = FakeComposio.created[0]
     assert session.user == composio_bridge._identity("owner-A")
     assert session.calls == [("GMAIL_FETCH_EMAILS", {
         "query": "invoice", "max_results": 3, "user_id": "me",
         "include_payload": False, "include_spam_trash": False,
     })]
     await tool_loop.dispatch_tool("owner-B", "conversation-B", "composio_gmail_fetch_emails", {})
-    assert FakeComposio.sessions[1].user == composio_bridge._identity("owner-B")
-    assert FakeComposio.sessions[0].user != FakeComposio.sessions[1].user
+    assert FakeComposio.created[1].user == composio_bridge._identity("owner-B")
+    assert FakeComposio.created[0].user != FakeComposio.created[1].user
 
 
 @pytest.mark.asyncio
@@ -98,7 +98,7 @@ async def test_invalid_args_and_anonymous_requests_fail_closed(monkeypatch):
     assert (await composio_bridge.gmail_read("", {}))["ok"] is False
     assert (await composio_bridge.gmail_read("owner", {"max_results": 100}))["ok"] is False
     assert (await composio_bridge.gmail_read("owner", {"max_results": True}))["ok"] is False
-    assert FakeComposio.sessions == []
+    assert FakeComposio.created == []
 
 
 @pytest.mark.asyncio
@@ -115,7 +115,7 @@ async def test_optional_model_tool_only_offered_to_authenticated_user(monkeypatc
 async def test_oauth_link_is_user_scoped_and_host_checked(monkeypatch):
     enable(monkeypatch)
     assert await composio_bridge.gmail_connect_link("owner") == "https://connect.composio.dev/link/example"
-    assert FakeComposio.sessions[0].user == composio_bridge._identity("owner")
+    assert FakeComposio.created[0].user == composio_bridge._identity("owner")
     monkeypatch.setattr(FakeSession, "authorize",
         lambda self, toolkit: SimpleNamespace(redirect_url="https://evil.example.com/steal"))
     with pytest.raises(RuntimeError, match="unexpected authorization"):
