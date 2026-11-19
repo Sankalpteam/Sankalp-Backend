@@ -268,10 +268,6 @@ def model_tool_declarations(
         wanted_names |= _connected_read_tools(str(user_id).strip())
 
     def wanted(spec: Any) -> bool:
-        if spec.name == "composio_gmail_fetch_emails":
-            from app.ai.execution.composio_bridge import enabled
-            if not user_id.strip() or not enabled():
-                return False
         # A tool the model cannot have the input for is not offered at all: the
         # contact tools need a client-supplied snapshot the model must never invent.
         if not getattr(spec, "model_facing", True):
@@ -285,6 +281,30 @@ def model_tool_declarations(
         return True
 
     declarations = [tool_declaration(spec) for spec in TOOL_SPECS if wanted(spec)]
+
+    # Composio is an external hosted tool like email, NOT a registry entry for
+    # the payload-only local run_tool executor. It requires authenticated user
+    # context, so only the secure dispatch_tool branch may call its SDK.
+    if str(user_id or "").strip():
+        from app.ai.execution.composio_bridge import enabled as composio_enabled
+        if composio_enabled() and (
+            full or "email" in set(families)
+            or "composio_gmail_fetch_emails" in set(discovered)
+        ):
+            declarations.append({
+                "name": "composio_gmail_fetch_emails",
+                "description": (
+                    "Read emails from the authenticated user's separately "
+                    "connected Composio Gmail account; never send or delete."
+                ),
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "query": {"type": "STRING", "description": "Optional Gmail search filter."},
+                        "max_results": {"type": "INTEGER", "description": "Maximum emails, 1-20."},
+                    },
+                },
+            })
 
     if full:
         declarations += [dict(item) for item in EMAIL_TOOL_DECLARATIONS]
