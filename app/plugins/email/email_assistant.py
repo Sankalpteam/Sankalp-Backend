@@ -12,7 +12,6 @@ from app.ai.gateway.service import generate_reply
 from app.capabilities.connectors.integrations import _fernet
 from app.capabilities.connectors.store import (
     consume_pending_email_action,
-    delete_pending_email_action,
     get_integration_token_metadata,
     get_pending_email_action,
     save_pending_email_action,
