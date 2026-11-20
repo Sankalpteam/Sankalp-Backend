@@ -89,6 +89,7 @@ async def stream_chat(request: Request, body: StreamChatRequest) -> StreamingRes
     if body.execution_mode == "langgraph":
         validate_opt_in(
             user_id=user_id, message=body.message, client_turn_id=body.client_turn_id,
+            conversation_id=body.conversation_id,
             has_attachments=bool(body.file_id), has_approval_tokens=False,
         )
 
