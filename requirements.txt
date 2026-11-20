@@ -21,3 +21,8 @@ defusedxml>=0.7,<1.0
 
 # Official MIT LangGraph workflow engine; version 1.x from the vetted upstream template.
 langgraph>=1.0.2,<2.0
+
+# Official MIT LangGraph durable checkpointers (same app DB; no new service).
+# SQLite >=3.0.1 includes the upstream SQL-injection security fix.
+langgraph-checkpoint-sqlite==3.1.3
+langgraph-checkpoint-postgres==3.2.1
