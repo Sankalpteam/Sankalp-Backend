@@ -148,3 +148,20 @@ main checkout. The two backup branches and earlier cleanup branch are unchanged.
 - **DO NOT MERGE OR DEPLOY** without additional Web/Android consent UX,
   provider E2E, PostgreSQL checkpointer validation where applicable,
   security review and actual single-host 2 GiB memory/load measurements.
+
+## Step 3 — explicit Chat → LangGraph opt-in bridge (2026-11-20)
+
+This is development only, not an automatic switch of live chat. Source:
+app/ai/execution/chat_agent_bridge.py, app/api/chat/chat.py,
+app/api/chat/platform.py, app/ai/agents/agent_async.py.
+
+- INDOONE_CHAT_LANGGRAPH_ENABLED=false by default. An authenticated client must send execution_mode=langgraph AND a stable client_turn_id. Normal chat routes preserve their existing behavior.
+- GET /api/chat/agent-mode exposes the authenticated user's server flag; older deployed servers advertise nothing.
+- Only registry risk=read tools without an approval requirement execute immediately. A single risk=write tool requiring official consent may ONLY stage a LangGraph interrupt when the durable approval flag is ON; no write is dispatched without human approval.
+- The chat bridge cannot accept approval_tokens or model/client-authorized tool names. Legacy CONFIRM/CANCEL messages remain part of the separate existing chat confirmation workflow.
+- Blocking and streaming both use the existing durable client_turn_id admission. No agent stream-to-blocking retry or automatic replay on timeout.
+- Chat responses expose agent_run_id / agent_status only in explicitly selected mode. Web/Android Draft PR #277 uses those fields to refresh the owner-scoped approval review UI.
+- Unsupported attachments, standalone confirmations and missing turn IDs are rejected before dispatch. Failed or blocked tool execution never becomes a success claim.
+- CI includes an actual SQLite LangGraph interrupt started from the chat endpoint, owner-only approval review and Command(resume=deny) via HTTP; no external provider write.
+- NOT DONE: transparent automatic routing, existing GitHub/email action migration, multi-step checkpoint resumes, connected-provider and device E2E, single-host 2 GiB AWS capacity, release rollback.
+- Feature OFF by default. DRAFT. DO NOT MERGE OR DEPLOY.
