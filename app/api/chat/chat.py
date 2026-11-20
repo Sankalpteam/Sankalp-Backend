@@ -353,6 +353,7 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
     if body.execution_mode == "langgraph":
         validate_opt_in(
             user_id=user_id, message=body.message, client_turn_id=body.client_turn_id,
+            conversation_id=body.conversation_id,
             has_attachments=bool(
                 body.file_id or body.file_ids or body.attachments
                 or body.attachment_base64 or body.attachment_filename
