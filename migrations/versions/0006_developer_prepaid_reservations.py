@@ -1,13 +1,13 @@
 """Atomic prepaid hold/capture foundation for future B2B billing.
 
-Revision ID: 0006_developer_prepaid_reservations
+Revision ID: 0006_prepaid_reserve
 Revises: 0005_developer_api_keys
 
 No payment, public inference, or automatic crediting is enabled by this schema.
 """
 from alembic import op
 
-revision = "0006_developer_prepaid_reservations"
+revision = "0006_prepaid_reserve"
 down_revision = "0005_developer_api_keys"
 branch_labels = None
 depends_on = None
