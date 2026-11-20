@@ -260,3 +260,17 @@ def test_opt_in_planner_writes_without_approval_are_dropped(monkeypatch, bridge)
     }, headers=_auth())
     assert result.status_code == 200, result.text
     assert result.json()["agent_status"] == "no_action"
+
+
+def test_agent_mode_capability_is_authenticated_and_default_off(bridge, monkeypatch):
+    monkeypatch.setenv("INDOONE_CHAT_LANGGRAPH_ENABLED", "false")
+    off = client.get("/api/chat/agent-mode", headers=_auth())
+    assert off.status_code == 200
+    assert off.json() == {"enabled": False}
+
+    monkeypatch.setenv("INDOONE_CHAT_LANGGRAPH_ENABLED", "true")
+    on = client.get("/api/chat/agent-mode", headers=_auth())
+    assert on.status_code == 200
+    assert on.json() == {"enabled": True}
+    unauthenticated = client.get("/api/chat/agent-mode")
+    assert unauthenticated.status_code in (401, 403)
