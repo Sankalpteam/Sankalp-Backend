@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
+from typing import Literal
 
 from app.ai.gateway.ai_rules import EMAIL_PENDING_ACTION
 from app.ai.memory.conversation_store import ConversationStore
@@ -42,6 +43,7 @@ from app.ai.execution.confirmation import classify_reply_async
 from app.ai.execution import limits as chat_limits
 from app.ai.execution.executor_claim import claim as _claim_executor
 from app.ai.execution.reply_guard import guard_reply
+from app.ai.execution.chat_agent_bridge import validate_opt_in, run_opt_in_agent
 from app.ai.execution.tool_loop import run_tool_loop
 from app.ai.execution.turn_idempotency import claim_turn, mark_turn_replied, turn_status
 from app.capabilities.connectors.store import (
@@ -99,6 +101,8 @@ class ChatRequest(BaseModel):
     # One ID per user action, shared between /chat and /chat/stream.
     # Legacy clients may omit it; new clients must keep it stable on retries.
     client_turn_id: str | None = Field(default=None, min_length=8, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$")
+    # Explicit client opt-in, never inferred from conversational text.
+    execution_mode: Literal["default", "langgraph"] = "default"
 
 
 def _decode_chat_attachment(body: ChatRequest) -> dict[str, object] | None:
@@ -198,6 +202,8 @@ class ChatResponse(BaseModel):
     # Empty for most replies. A held write carries Confirm/Cancel, so the user presses a
     # button instead of typing a word the reply had to spell out.
     action_chips: list[ActionChip] = Field(default_factory=list)
+    agent_run_id: str | None = None
+    agent_status: str | None = None
 
 
 def _principal(request: Request) -> str:
@@ -327,12 +333,22 @@ def _admit(request: Request, user_id: str) -> None:
     )
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat", response_model=ChatResponse, response_model_exclude_none=True)
 async def chat(request: Request, body: ChatRequest) -> ChatResponse:
     action_chips.begin()
     user_id = _principal(request)
     body.message = _frontline(request, user_id, body.message)
     _admit(request, user_id)
+    if body.execution_mode == "langgraph":
+        validate_opt_in(
+            user_id=user_id, message=body.message, client_turn_id=body.client_turn_id,
+            has_attachments=bool(
+                body.file_id or body.file_ids or body.attachments
+                or body.attachment_base64 or body.attachment_filename
+                or body.attachment_mime_type
+            ),
+            has_approval_tokens=bool(body.approval_tokens),
+        )
     if body.client_turn_id:
         if not user_id:
             raise HTTPException(status_code=401, detail="authenticated user required for turn idempotency")
@@ -370,6 +386,35 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if body.execution_mode == "langgraph":
+        # One opt-in LangGraph execution, not the legacy GitHub/email router
+        # followed by a second model tool loop. The authenticated /api/agent
+        # approval endpoint is the ONLY way to resume a paused write.
+        outcome = await run_opt_in_agent(user_id=user_id, message=body.message)
+        try:
+            _store.append(
+                conversation_id,
+                [("user", body.message), ("assistant", outcome.reply)],
+                user_id=user_id,
+            )
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if body.client_turn_id:
+            try:
+                mark_turn_replied(user_id, body.client_turn_id)
+            except Exception:
+                logger.warning("Unable to mark LangGraph chat turn replied", exc_info=True)
+        action_chips.reset()
+        return ChatResponse(
+            conversation_id=conversation_id,
+            reply=outcome.reply,
+            action_chips=[],
+            agent_run_id=outcome.agent_run_id,
+            agent_status=outcome.agent_status,
+        )
 
     document_context_parts: list[str] = []
     media_attachments: list[dict[str, object]] = []
