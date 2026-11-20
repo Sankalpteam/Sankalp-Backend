@@ -7,6 +7,7 @@ authoritative provider usage. An ambiguous timeout retains its hold.
 """
 from __future__ import annotations
 
+import re
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -86,13 +87,16 @@ def wallet_snapshot(owner_id: str) -> dict[str, object]:
 
 
 def reserve_prepaid(*, owner_id: str, key_id: str, client_request_id: str,
-                    price: ServerPrice, max_charge_paise: int) -> tuple[str, bool]:
+                    price: ServerPrice, max_charge_paise: int,
+                    request_sha256: str = '0' * 64) -> tuple[str, bool]:
     """Hold a server-calculated maximum before provider dispatch.
 
     (reservation_id, True) for new work; (id, False) for an identical retry.
     The caller MUST NOT send another upstream request on False.
     """
     price.validate()
+    if not re.fullmatch(r'[0-9a-f]{64}', request_sha256):
+        raise ValueError('invalid request SHA-256 fingerprint')
     _bounded(max_charge_paise, "max_charge_paise", minimum=1)
     if not owner_id or not key_id or not (1 <= len(client_request_id) <= 128):
         raise ValueError("invalid reservation identifiers")
@@ -108,12 +112,13 @@ def reserve_prepaid(*, owner_id: str, key_id: str, client_request_id: str,
                     key["environment"] != "live" or key["status"] != "active"):
                 raise PermissionError("live developer key is unavailable")
             prior = db.execute(
-                "SELECT reservation_id, owner_id, model, provider, upstream_model, "
+                "SELECT reservation_id, owner_id, request_sha256, model, provider, upstream_model, "
                 "input_rate_paise, output_rate_paise, max_charge_paise FROM developer_prepaid_reservations "
                 "WHERE key_id = ? AND client_request_id = ?", (key_id, client_request_id),
             ).fetchone()
             if prior is not None:
-                if (prior["owner_id"] != owner_id or prior["model"] != price.alias or
+                if (prior["owner_id"] != owner_id or prior["request_sha256"] != request_sha256
+                    or prior["model"] != price.alias or
                     prior["provider"] != price.provider or prior["upstream_model"] != price.upstream_model or
                     int(prior["max_charge_paise"]) != max_charge_paise or
                     int(prior["input_rate_paise"]) != price.input_rate_paise or
@@ -138,11 +143,11 @@ def reserve_prepaid(*, owner_id: str, key_id: str, client_request_id: str,
             now = _now()
             db.execute(
                 "INSERT INTO developer_prepaid_reservations "
-                "(reservation_id, owner_id, key_id, client_request_id, model, provider, upstream_model, "
+                "(reservation_id, owner_id, key_id, client_request_id, request_sha256, model, provider, upstream_model, "
                 "input_rate_paise, output_rate_paise, max_charge_paise, status, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?)",
-                (reservation_id, owner_id, key_id, client_request_id, price.alias, price.provider,
-                 price.upstream_model, price.input_rate_paise, price.output_rate_paise,
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?)",
+                (reservation_id, owner_id, key_id, client_request_id, request_sha256, price.alias,
+                 price.provider, price.upstream_model, price.input_rate_paise, price.output_rate_paise,
                  max_charge_paise, now, now),
             )
             db.commit()
@@ -234,11 +239,13 @@ def release_before_dispatch(*, reservation_id: str, provider_dispatch_started: b
         try:
             db.begin_write()
             row = db.execute(
-                "SELECT owner_id, max_charge_paise, status FROM developer_prepaid_reservations "
+                "SELECT owner_id, max_charge_paise, status, dispatch_started_at FROM developer_prepaid_reservations "
                 "WHERE reservation_id = ?" + database.for_update(), (reservation_id,),
             ).fetchone()
             if row is None:
                 raise ValueError("unknown reservation")
+            if row["dispatch_started_at"] is not None:
+                raise PermissionError("cannot release after persistent provider dispatch marker")
             if row["status"] != "reserved":
                 db.commit()
                 return False
@@ -257,6 +264,43 @@ def release_before_dispatch(*, reservation_id: str, provider_dispatch_started: b
             )
             db.commit()
             return True
+        except BaseException:
+            db.rollback()
+            raise
+
+
+def mark_provider_dispatched(*, reservation_id: str, key_id: str) -> None:
+    """One-way durable marker BEFORE the first upstream network request.
+
+    A duplicate request or revoked key must not trigger a second provider
+    call. Once recorded, operators must reconcile ambiguous outcomes.
+    """
+    ensure_schema()
+    with closing(database.connect()) as db:
+        try:
+            db.begin_write()
+            row = db.execute(
+                "SELECT key_id, status, dispatch_started_at FROM developer_prepaid_reservations "
+                "WHERE reservation_id = ?" + database.for_update(), (reservation_id,),
+            ).fetchone()
+            if row is None or row["key_id"] != key_id:
+                raise PermissionError("reservation/key mismatch")
+            if row["status"] != "reserved" or row["dispatch_started_at"] is not None:
+                raise PermissionError("provider dispatch already started or reservation closed")
+            key = db.execute(
+                "SELECT status FROM developer_api_keys WHERE key_id = ?" + database.for_update(),
+                (key_id,),
+            ).fetchone()
+            if key is None or key["status"] != "active":
+                raise PermissionError("API key revoked before provider dispatch")
+            changed = db.execute(
+                "UPDATE developer_prepaid_reservations SET dispatch_started_at = ?, updated_at = ? "
+                "WHERE reservation_id = ? AND status = 'reserved' AND dispatch_started_at IS NULL",
+                (_now(), _now(), reservation_id),
+            )
+            if changed.rowcount != 1:
+                raise PermissionError("dispatch already claimed")
+            db.commit()
         except BaseException:
             db.rollback()
             raise
