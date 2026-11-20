@@ -43,7 +43,7 @@ from app.ai.execution.confirmation import classify_reply_async
 from app.ai.execution import limits as chat_limits
 from app.ai.execution.executor_claim import claim as _claim_executor
 from app.ai.execution.reply_guard import guard_reply
-from app.ai.execution.chat_agent_bridge import validate_opt_in, run_opt_in_agent
+from app.ai.execution.chat_agent_bridge import enabled as langgraph_chat_enabled, validate_opt_in, run_opt_in_agent
 from app.ai.execution.tool_loop import run_tool_loop
 from app.ai.execution.turn_idempotency import claim_turn, mark_turn_replied, turn_status
 from app.capabilities.connectors.store import (
@@ -331,6 +331,17 @@ def _admit(request: Request, user_id: str) -> None:
         detail=admission.message or "Too many requests. Try again shortly.",
         headers={"Retry-After": str(max(1, admission.retry_after))},
     )
+
+
+@router.get("/chat/agent-mode")
+async def chat_agent_mode_availability(request: Request) -> dict[str, bool]:
+    """Read-only capability discovery for explicit Web/Android user opt-in.
+
+    This endpoint does not enable the agent, start a tool, mint an approval
+    token or reveal another person's runs.
+    """
+    _principal(request)
+    return {"enabled": langgraph_chat_enabled()}
 
 
 @router.post("/chat", response_model=ChatResponse, response_model_exclude_none=True)
