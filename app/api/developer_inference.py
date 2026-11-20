@@ -230,7 +230,7 @@ async def developer_chat_completions(
         )
         if not created:
             raise RuntimeError("Duplicate provider evidence cannot generate another charge")
-    except (httpx.HTTPError, ValueError, RuntimeError, PermissionError, KeyError, IndexError, TypeError) as exc:
+    except Exception as exc:
         # Never quietly release on timeout or ambiguous provider response.
         # Customer support/operator reconciliation is required; no phantom
         # success response or inferred token usage may be returned.
@@ -243,7 +243,12 @@ async def developer_chat_completions(
         "id": reservation, "object": "chat.completion", "created": int(time.time()),
         "model": body.model,
         "choices": [{"index": 0, "message": {"role": "assistant", "content": content},
-                     "finish_reason": "stop"}],
+                     "finish_reason": (
+                         "length" if (data["candidates"][0]["finishReason"] == "MAX_TOKENS"
+                                      if price.provider == "gemini"
+                                      else data["choices"][0]["finish_reason"] == "length")
+                         else "stop"
+                     )}],
         "usage": {"prompt_tokens": verified.input_tokens,
                   "completion_tokens": verified.output_tokens,
                   "total_tokens": verified.input_tokens + verified.output_tokens},
