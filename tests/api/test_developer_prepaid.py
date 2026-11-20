@@ -199,3 +199,19 @@ def test_upstream_response_id_cannot_be_invoiced_twice(account):
         n = db.execute("SELECT COUNT(*) AS n FROM developer_verified_usage "
             "WHERE upstream_response_id = ?", ("upstream-response-one",)).fetchone()
         assert n["n"] == 1
+
+
+def test_per_key_request_rate_and_inflight_limit_are_durable(account):
+    a, _ = _reserve("meter-a", 100)
+    b, _ = _reserve("meter-b", 100)
+    c, _ = _reserve("meter-c", 100)
+    mark_provider_dispatched(reservation_id=a, key_id="key-a", requests_per_minute=2, max_inflight=2)
+    mark_provider_dispatched(reservation_id=b, key_id="key-a", requests_per_minute=2, max_inflight=2)
+    with pytest.raises(PermissionError, match="concurrent"):
+        mark_provider_dispatched(reservation_id=c, key_id="key-a", requests_per_minute=2, max_inflight=2)
+    capture_verified(reservation_id=a, provider="gemini", upstream_model="gemini-test",
+        upstream_response_id="rate-upstream-a", input_tokens=10, output_tokens=10, provider_reported=True)
+    with pytest.raises(PermissionError, match="minute"):
+        mark_provider_dispatched(reservation_id=c, key_id="key-a", requests_per_minute=2, max_inflight=2)
+    assert wallet_snapshot("alice")["held_paise"] == 200
+    assert release_before_dispatch(reservation_id=c, provider_dispatch_started=False)
