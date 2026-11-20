@@ -336,10 +336,11 @@ def prune_rate_windows(*, older_than_minutes: int = 1440) -> int:
     _bounded(older_than_minutes, "older_than_minutes", minimum=60, maximum=10080)
     cutoff = int(datetime.now(timezone.utc).timestamp() // 60) - older_than_minutes
     with closing(database.connect()) as db:
-        if not db.table_exists("developer_key_rate_windows"):
-            return 0  # older production schema: never auto-enable or migrate
         try:
             db.begin_write()
+            if not db.table_exists("developer_key_rate_windows"):
+                db.commit()
+                return 0  # older production schema: never auto-enable or migrate
             removed = db.execute(
                 "DELETE FROM developer_key_rate_windows WHERE minute_bucket < ?", (cutoff,),
             ).rowcount
