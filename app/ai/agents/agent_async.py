@@ -23,6 +23,9 @@ from app.ai.agents.agent import (
     build_agent_steps,
 )
 from app.ai.execution.agent_policy import deadline_failure, remaining_budget, should_retry
+from app.ai.execution.approval import decide_tool
+from app.ai.execution import durable_approval
+from app.ai.execution.tool_registry import get_tool_spec
 from app.ai.execution.langgraph_orchestrator import run_graph_execution
 from app.ai.execution.tools import ToolResult, run_tool_async
 from app.capabilities.connectors.store import create_agent_run, update_agent_run
@@ -103,4 +106,22 @@ async def execute_agent_async(
             blocked_steps=[_serialize_step(step) for step in execution.blocked_steps],
             retry_counts=list(execution.retry_counts),
         )
+        # This opt-in first checkpoint supports only an isolated write whose
+        # entire plan consists of one unexecuted approval-required step.
+        # Never stage connector-denied tools or replay a multi-step graph.
+        if (
+            durable_approval.enabled()
+            and len(planned) == 1
+            and len(blocked) == 1
+            and not steps
+            and not results
+        ):
+            pending = blocked[0]
+            spec = get_tool_spec(pending.tool)
+            if spec is not None and spec.requires_approval and spec.risk == "write":
+                decision = decide_tool(
+                    pending.tool, approved, tokens, user_id=user_id
+                )
+                if decision.reason == "valid server-issued approval is required":
+                    durable_approval.stage(user_id, run_id, _serialize_step(pending))
     return execution
