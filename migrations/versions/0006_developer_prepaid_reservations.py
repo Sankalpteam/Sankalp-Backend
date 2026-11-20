@@ -43,10 +43,21 @@ def upgrade() -> None:
             UNIQUE(key_id, client_request_id)
         )
     """)
+    # Provider response IDs are bound to billable evidence, preventing the same
+    # upstream response from being used in two separate billable requests.
+    # Earlier unbillable evidence remains nullable for compatibility.
+    op.execute("ALTER TABLE developer_verified_usage ADD COLUMN upstream_response_id TEXT")
+    op.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_dev_usage_upstream "
+        "ON developer_verified_usage(provider, upstream_response_id)"
+    )
     op.execute("CREATE INDEX IF NOT EXISTS idx_dev_reservations_owner ON developer_prepaid_reservations(owner_id, created_at)")
     op.execute("CREATE INDEX IF NOT EXISTS idx_dev_reservations_status ON developer_prepaid_reservations(status, created_at)")
 
 
 def downgrade() -> None:
+    op.execute("DROP INDEX IF EXISTS idx_dev_usage_upstream")
+    # SQLite cannot drop this added column on all supported deployments;
+    # retaining nullable evidence metadata is a safe downgrade.
     op.execute("DROP TABLE IF EXISTS developer_prepaid_reservations")
     op.execute("DROP TABLE IF EXISTS developer_prepaid_accounts")
