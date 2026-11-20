@@ -44,8 +44,12 @@ and Groq fallback function calls now also run through LangGraph StateGraphs.
 The existing `/api/agent` heuristic planner remains for stable legacy command
 contracts; an **opt-in, read-only, authenticated** Gemini fallback is available
 via `INDOONE_AGENT_MODEL_PLANNER=true`. This is not a total planner replacement.
-The official `ask_human` source is copied but deliberately not activated for
-irreversible writes without durable user-scoped checkpoints.
+The upstream `ask_human` reference remains present for attribution; the opt-in
+single-write approval flow now uses official `interrupt()` and `Command(resume=...)`
+with official SQLite/PostgreSQL checkpoint implementations. The pause is a pure
+review graph; the authenticated existing executor still gates external writes,
+with a one-time database claim to prevent replay after crashes. Multi-step
+resume and production verification remain pending.
 
 See `docs/architecture/open_source_replacement_release_gate.md` for the
 remaining external dependencies, 2 GiB release blockers and exact CI status.
