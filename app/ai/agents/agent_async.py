@@ -23,6 +23,7 @@ from app.ai.agents.agent import (
     build_agent_steps,
 )
 from app.ai.execution.agent_policy import deadline_failure, remaining_budget, should_retry
+from app.ai.execution.agent_tool_capabilities import admit_chat_plan
 from app.ai.execution.approval import decide_tool
 from app.ai.execution import langgraph_approval as durable_approval
 from app.ai.execution.tool_registry import get_tool_spec
@@ -77,24 +78,14 @@ async def execute_agent_async(
         from app.ai.agents.model_planner import plan_model_read_steps
 
         planned = await plan_model_read_steps(normalized, user_id=user_id)
-    if chat_handoff:
-        # Admission allowlist: no model/tool-planner output may invoke an
-        # unapproved external/execution action via the chat bridge. One isolated
-        # official consent-gated write may PAUSE, never execute immediately.
-        specs = [get_tool_spec(step.tool) for step in planned]
-        can_read = all(
-            spec is not None and spec.risk == "read" and not spec.requires_approval
-            for spec in specs
-        )
-        can_pause_single_write = (
-            len(planned) == 1
-            and durable_approval.enabled()
-            and specs[0] is not None
-            and specs[0].risk == "write"
-            and specs[0].requires_approval
-        )
-        if not (can_read or can_pause_single_write):
-            planned = ()
+    if chat_handoff and not admit_chat_plan(
+        tuple(step.tool for step in planned),
+        allow_approval_write=durable_approval.enabled(),
+    ):
+        # The policy views every registered local/connector tool, not only
+        # "plugins"; specialized Gmail/Composio/MCP paths remain legacy-only
+        # until an explicitly trusted official adapter is implemented.
+        planned = ()
     result = await run_graph_execution(
         planned,
         user_id=user_id,
