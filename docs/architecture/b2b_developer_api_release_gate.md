@@ -32,6 +32,12 @@ load capacity, or successful real-world provider billing.
   model fallback mismatch and currently unpriced thought/cache/tool usage.
 - `GET /api/developers/wallet`: owner-scoped read-only readiness snapshot,
   with paid inference and funding explicitly disabled.
+- `app/api/developer_inference.py`: isolated `POST /v1/chat/completions`
+  implementation is now present in development source, uses developer keys,
+  idempotency fingerprints, pre-dispatch holds, per-key minute/concurrency
+  limits, exact upstream token evidence and atomic settlement. It is
+  **default-off** under independent resale, billing and gateway approval flags.
+  It has no access to consumer chat OAuth tokens or tool credentials.
 - `app/api/developer_keys.py`: Firebase-authenticated, owner-only
   `GET /api/developers/status`, `GET/POST /api/developers/keys`,
   `DELETE /api/developers/keys/{id}`, and
@@ -50,23 +56,26 @@ load capacity, or successful real-world provider billing.
 
 ## NOT implemented / blockers before monetization
 
-1. **Billable public inference route.** `/v1/chat/completions` is NOT
-   implemented or enabled. Keys must never be accepted as Firebase user
-   credentials on `/api/chat`, `/api/agent` or connector endpoints.
-2. **Real provider metering integration.** Internal strict Gemini/Groq usage
-   extractors and regression tests now exist, but upstream provider HTTP
-   requests are **not yet bound** to the reserved request and immutable ledger.
-   Never estimate saleable tokens as characters divided by four. Fail closed
-   for missing/late/ambiguous usage or unexpected fallback models; separately
-   approve pricing for reasoning, tool calls and cached input before billing.
-3. **Budget reservation wiring and invariant enforcement.** Internal holds,
-   integer-paise capture and duplicate-request protection are now implemented
-   and unit-tested, but **not wired into any public inference endpoint**.
-   A future authenticated gateway must persist and atomically enforce provider
-   dispatch state, per-key rate limits, model token ceilings, hard spending caps,
-   and unknown-outcome reconciliation; do not silently release holds after
-   ambiguous upstream timeouts. A customer-facing payments ledger, verified
-   funding and operator dispute workflow are still absent.
+1. **Public inference release.** `/v1/chat/completions` now exists in the
+   feature branch for isolated HTTP-contract testing, but is NOT enabled or
+   approved for production. Its four independent feature/approval flags
+   default to false. Confirm approved provider aliases, production provider
+   responses, finance controls and legal permission before any activation.
+   Developer keys must never work as Firebase credentials on `/api/chat`,
+   `/api/agent` or connector endpoints.
+2. **Real provider metering integration.** The new gated HTTP route binds
+   upstream provider responses to reserved requests, matching model/version,
+   response ID and exact usage metadata. These are mocked in CI, **not live
+   provider validated**. The provider's pricing of reasoning, tool calls and
+   cached input has not been approved. No billing is live. Never estimate
+   tokens from text length or bill unverified fallback output.
+3. **Budget reconciliation and operator controls.** Internal holds, integer-
+   paise capture, durable dispatch markers, per-key rate/concurrency limits,
+   response-ID uniqueness and idempotency are implemented and wired to the
+   **disabled** HTTP route. Safe cancellation before dispatch exists, but
+   post-dispatch unknown-outcome reconciliation, expired hold resolution,
+   merchant funding, dispute workflow, and financial ledger sign-off are still
+   missing. Do not silently release holds after ambiguous upstream timeouts.
 4. **Approved model aliases, costs and INR pricing.** The frontend's
    `sankalp-mini/lite/standard/pro/max` labels and rupee rates are
    placeholders, NOT five functioning independent models. Fix exact
@@ -89,10 +98,14 @@ load capacity, or successful real-world provider billing.
 
 ## Environment switches
 
-`INDOONE_DEVELOPER_KEYS_ENABLED=false` by default; enabling management
-requires a distinct `INDOONE_DEVELOPER_KEY_HASH_SECRET` of at least 32
-bytes. This does not enable spendable/billable API endpoints. Production
-key management and paid inference remain OFF until separately approved.
+`INDOONE_DEVELOPER_KEYS_ENABLED=false` by default; management requires a
+unique `INDOONE_DEVELOPER_KEY_HASH_SECRET` of at least 32 bytes.
+The separate flags `INDOONE_B2B_GATEWAY_ENABLED`,
+`INDOONE_B2B_RESALE_APPROVED`, and `INDOONE_B2B_BILLING_APPROVED` all
+start false. `INDOONE_B2B_APPROVED_MODEL_CATALOG_JSON={}` has no saleable
+models or prices. Never set the approval flags until external permissions,
+merchant identity, pricing and live E2E have passed and been authorized.
+**No production env values were changed by this development work.**
 
 ## Verification boundary
 
