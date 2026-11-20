@@ -116,29 +116,29 @@ main checkout. The two backup branches and earlier cleanup branch are unchanged.
 
 ## Opt-in durable approval for isolated /api/agent write — branch checkpoint (2026-11-20)
 
-- Feature flag: \`INDOONE_AGENT_DURABLE_APPROVAL_ENABLED=false\` by default.
-- Migration \`0005_durable_agent_approvals\` creates one short-lived, per-owner
-  approval ledger, linked to existing \`agent_runs\` (no second database/server).
+- Feature flag: `INDOONE_AGENT_DURABLE_APPROVAL_ENABLED=false` by default.
+- Migration `0005_durable_agent_approvals` creates one short-lived, per-owner
+  approval ledger, linked to existing `agent_runs` (no second database/server).
   The action is stored only in the original run; the ledger stores a SHA-256
   fingerprint, owner, expiry and one-time status.
 - A blocked **single-step** authenticated write (which passed connector
-  authorization but lacks approval) becomes \`awaiting_approval\` for 300 seconds.
+  authorization but lacks approval) becomes `awaiting_approval` for 300 seconds.
   Multi-step plans, anonymous requests, reads and connector-denied actions
   are not enrolled. Legacy APIs are unchanged with the flag off.
-- \`GET /api/agent/runs/{run_id}/approval\` returns the exact proposed action
+- `GET /api/agent/runs/{run_id}/approval` returns the exact proposed action
   and expiry to its authenticated owner. The UI must display these details
   before offering explicit approval or denial.
-- \`POST /api/agent/runs/{run_id}/approval\` with
-  \`{"decision":"approve"}\` or \`{"decision":"deny"}\` only accepts the decision.
+- `POST /api/agent/runs/{run_id}/approval` with
+  `{"decision":"approve"}` or `{"decision":"deny"}` only accepts the decision.
   No client-provided tool, identity or payload is ever dispatched. Approval
   requires a server-issued short-lived signed token; the existing LangGraph
   executor rechecks connector authorization.
 - Competing approvals serialize using SQLite write-lock or PostgreSQL row
-  lock. The run is durably \`claimed\` before the external write; repeat requests
+  lock. The run is durably `claimed` before the external write; repeat requests
   cannot dispatch it again. Denial never executes. If execution or transport
-  fails without a verified outcome, status is \`needs_review\` and there is
+  fails without a verified outcome, status is `needs_review` and there is
   **no automatic retry**. A crash between claim and completion leaves a
-  \`claimed\` record requiring operator reconciliation.
+  `claimed` record requiring operator reconciliation.
 - Unit/API test coverage includes cross-user denial, one-time claim,
   expiry, tampering, explicit deny, duplicate POST and uncertain-provider
   outcomes. CI and real Web/Android provider approval E2E are still gates.
