@@ -398,9 +398,18 @@ def get_pending_email_action(user_id: str, conversation_id: str) -> dict[str, An
         except ValueError:
             expires_at = datetime.min.replace(tzinfo=timezone.utc)
         if expires_at <= datetime.now(timezone.utc):
+            # A new proposal may have replaced this expired row after SELECT.
+            # Do not delete the replacement using a stale read snapshot.
             db.execute(
-                "DELETE FROM pending_email_actions WHERE user_id = ? AND conversation_id = ?",
-                (normalized_user, normalized_conversation),
+                "DELETE FROM pending_email_actions "
+                "WHERE user_id = ? AND conversation_id = ? "
+                "AND integration_id = ? AND action_type = ? "
+                "AND encrypted_payload = ? AND created_at = ?",
+                (
+                    normalized_user, normalized_conversation,
+                    item["integration_id"], item["action_type"],
+                    bytes(item["encrypted_payload"]), item["created_at"],
+                ),
             )
             db.commit()
             return None
@@ -917,7 +926,8 @@ def consume_pending_github_action(
 
 
 def delete_pending_github_action(user_id: str, conversation_id: str) -> bool:
-    """Drop a pending GitHub write - after it runs, or after a cancel."""
-    if get_pending_github_action(user_id, conversation_id) is None:
+    """Drop only the exact GitHub proposal, never an email replacement."""
+    pending = get_pending_github_action(user_id, conversation_id)
+    if pending is None:
         return False
-    return delete_pending_email_action(user_id, conversation_id)
+    return consume_pending_github_action(user_id, conversation_id, pending) is not None
