@@ -274,3 +274,69 @@ def test_agent_mode_capability_is_authenticated_and_default_off(bridge, monkeypa
     assert on.json() == {"enabled": True}
     unauthenticated = client.get("/api/chat/agent-mode")
     assert unauthenticated.status_code in (401, 403)
+
+
+def test_real_langgraph_interrupt_from_chat_is_denied_without_provider_write(
+    bridge, monkeypatch
+):
+    """Real SQLite checkpoint pause + resume via chat and owned approval API."""
+    from app.ai.agents.agent import AgentStep
+    from app.ai.execution.approval import ApprovalDecision
+
+    monkeypatch.setenv("INDOONE_AGENT_DURABLE_APPROVAL_ENABLED", "true")
+    step = AgentStep(
+        1, "github_delete_branch",
+        '{"repository":"owner/repo","branch":"obsolete"}',
+        True,
+    )
+    monkeypatch.setattr(
+        "app.ai.agents.agent_async.build_agent_steps",
+        lambda *args, **kwargs: (step,),
+    )
+    monkeypatch.setattr("app.ai.agents.agent_async._load_memory_context", lambda *args: ())
+    blocked = lambda *args, **kwargs: ApprovalDecision(
+        False, True, "valid server-issued approval is required"
+    )
+    monkeypatch.setattr("app.ai.execution.langgraph_orchestrator.decide_tool", blocked)
+    monkeypatch.setattr("app.ai.agents.agent_async.decide_tool", blocked)
+    monkeypatch.setattr(
+        "app.ai.agents.agent_async._run_with_retry_async",
+        lambda *a, **k: pytest.fail("tool must never be called before consent"),
+    )
+
+    result = client.post(
+        "/api/chat",
+        json={
+            "message": "delete obsolete feature branch",
+            "execution_mode": "langgraph",
+            "client_turn_id": _turn(),
+        },
+        headers=_auth("alice"),
+    )
+    assert result.status_code == 200, result.text
+    payload = result.json()
+    assert payload["agent_status"] == "awaiting_approval"
+    run_id = payload["agent_run_id"]
+    assert run_id
+    assert "No change was sent" in payload["reply"]
+    assert payload["action_chips"] == []
+
+    other = client.get(f"/api/agent/runs/{run_id}/approval", headers=_auth("bob"))
+    assert other.status_code == 404
+    owner = client.get(f"/api/agent/runs/{run_id}/approval", headers=_auth("alice"))
+    assert owner.status_code == 200
+    assert owner.json()["status"] == "pending"
+    assert owner.json()["tool"] == "github_delete_branch"
+
+    denied = client.post(
+        f"/api/agent/runs/{run_id}/approval",
+        json={"decision": "deny"}, headers=_auth("alice"),
+    )
+    assert denied.status_code == 200, denied.text
+    assert denied.json()["status"] == "denied"
+    assert denied.json()["executed"] is False
+    repeated = client.post(
+        f"/api/agent/runs/{run_id}/approval",
+        json={"decision": "approve"}, headers=_auth("alice"),
+    )
+    assert repeated.status_code == 409
