@@ -10,6 +10,7 @@ from app.api.developer_prepaid import (
     ServerPrice,
     capture_verified,
     metered_charge_paise,
+    mark_provider_dispatched,
     release_before_dispatch,
     reserve_prepaid,
     wallet_snapshot,
@@ -150,3 +151,32 @@ def test_charge_validation_uses_nonnegative_integers_not_float(account):
             metered_charge_paise(bad, 0, input_rate_paise=4000, output_rate_paise=8000)
     with pytest.raises(ValueError):
         ServerPrice("alias", "unknown", "model", 10, 10).validate()
+
+
+def test_fingerprint_and_durable_dispatch_replay_protection(account):
+    reference, created = reserve_prepaid(
+        owner_id="alice", key_id="key-a", client_request_id="op-one",
+        price=_PRICE, max_charge_paise=100, request_sha256="a" * 64,
+    )
+    assert created is True
+    with pytest.raises(ValueError, match="idempotency"):
+        reserve_prepaid(owner_id="alice", key_id="key-a", client_request_id="op-one",
+            price=_PRICE, max_charge_paise=100, request_sha256="b" * 64)
+    assert reserve_prepaid(owner_id="alice", key_id="key-a", client_request_id="op-one",
+        price=_PRICE, max_charge_paise=100, request_sha256="a" * 64) == (reference, False)
+    mark_provider_dispatched(reservation_id=reference, key_id="key-a")
+    with pytest.raises(PermissionError, match="dispatch already"):
+        mark_provider_dispatched(reservation_id=reference, key_id="key-a")
+    with pytest.raises(PermissionError, match="persistent"):
+        release_before_dispatch(reservation_id=reference, provider_dispatch_started=False)
+    assert wallet_snapshot("alice")["held_paise"] == 100
+
+
+def test_revocation_before_dispatch_blocks_provider_call(account):
+    reference, _ = _reserve("will-revoke")
+    with database.connect() as db:
+        db.execute("UPDATE developer_api_keys SET status = 'revoked' WHERE key_id = 'key-a'")
+    with pytest.raises(PermissionError, match="revoked"):
+        mark_provider_dispatched(reservation_id=reference, key_id="key-a")
+    assert release_before_dispatch(reservation_id=reference, provider_dispatch_started=False)
+    assert wallet_snapshot("alice")["held_paise"] == 0
