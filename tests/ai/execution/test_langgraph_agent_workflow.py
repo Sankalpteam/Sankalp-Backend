@@ -101,3 +101,27 @@ def test_langgraph_keeps_approval_required_tool_blocked_without_token():
     assert not calls
     assert result["steps"] == ()
     assert result["blocked_steps"][0].requires_approval is True
+
+
+def test_langgraph_unapproved_write_halts_following_steps():
+    calls = []
+
+    async def forbidden(*args):
+        calls.append(args)
+        raise AssertionError("no step may execute after a blocked write")
+
+    async def scenario():
+        return await run_graph_execution(
+            (
+                AgentStep(1, "github_delete_branch", '{"repository":"org/repo","branch":"feature"}', True),
+                AgentStep(2, "text_stats", "should never run"),
+            ),
+            user_id="u1", approved_tools=frozenset(),
+            approval_tokens=(), deadline=monotonic() + 20,
+            execute_with_retry=forbidden,
+        )
+
+    result = asyncio.run(scenario())
+    assert calls == []
+    assert result["steps"] == ()
+    assert [step.index for step in result["blocked_steps"]] == [1, 2]
