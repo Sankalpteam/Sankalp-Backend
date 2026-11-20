@@ -158,7 +158,8 @@ def reserve_prepaid(*, owner_id: str, key_id: str, client_request_id: str,
 
 
 def capture_verified(*, reservation_id: str, provider: str, upstream_model: str,
-                     input_tokens: int, output_tokens: int, provider_reported: bool = False) -> tuple[int, bool]:
+                     upstream_response_id: str, input_tokens: int, output_tokens: int,
+                     provider_reported: bool = False) -> tuple[int, bool]:
     """Atomically capture verified usage and refund unused held paise.
 
     On timeout, missing metadata, or cap violation the hold stays reserved for
@@ -166,6 +167,8 @@ def capture_verified(*, reservation_id: str, provider: str, upstream_model: str,
     """
     if provider_reported is not True:
         raise PermissionError("unverified tokens cannot be billed")
+    if not isinstance(upstream_response_id, str) or not 1 <= len(upstream_response_id) <= 160 or upstream_response_id != upstream_response_id.strip():
+        raise ValueError("invalid upstream response ID")
     _bounded(input_tokens, "input_tokens", maximum=_MAX_TOKENS)
     _bounded(output_tokens, "output_tokens", maximum=_MAX_TOKENS)
     ensure_schema()
@@ -185,10 +188,11 @@ def capture_verified(*, reservation_id: str, provider: str, upstream_model: str,
                 output_rate_paise=int(row["output_rate_paise"]))
             if row["status"] == "captured":
                 evidence = db.execute(
-                    "SELECT provider, model, input_tokens, output_tokens FROM developer_verified_usage "
+                    "SELECT provider, model, upstream_response_id, input_tokens, output_tokens FROM developer_verified_usage "
                     "WHERE request_id = ?", (reservation_id,),
                 ).fetchone()
-                if (evidence is None or evidence["provider"] != provider or evidence["model"] != upstream_model or
+                if (evidence is None or evidence["provider"] != provider or evidence["model"] != upstream_model
+                    or evidence["upstream_response_id"] != upstream_response_id or
                     int(evidence["input_tokens"]) != input_tokens or int(evidence["output_tokens"]) != output_tokens or
                     int(row["captured_paise"]) != charge):
                     raise ValueError("conflicting duplicate provider usage")
@@ -202,10 +206,11 @@ def capture_verified(*, reservation_id: str, provider: str, upstream_model: str,
             now = _now()
             db.execute(
                 "INSERT INTO developer_verified_usage "
-                "(event_id, request_id, key_id, owner_id, model, provider, input_tokens, output_tokens, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "(event_id, request_id, key_id, owner_id, model, provider, upstream_response_id, "
+                "input_tokens, output_tokens, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (str(uuid4()), reservation_id, row["key_id"], row["owner_id"], upstream_model,
-                 provider, input_tokens, output_tokens, now),
+                 provider, upstream_response_id, input_tokens, output_tokens, now),
             )
             updated = db.execute(
                 "UPDATE developer_prepaid_accounts SET held_paise = held_paise - ?, "
