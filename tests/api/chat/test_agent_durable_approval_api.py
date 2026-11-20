@@ -141,3 +141,29 @@ def test_disabled_feature_does_not_stage_new_actions(approval_api, monkeypatch):
     path = f"/api/agent/runs/{approval_api}/approval"
     assert client.get(path, headers=_auth("alice")).status_code == 404
     assert client.post(path, json={"decision": "approve"}, headers=_auth("alice")).status_code == 404
+
+
+def test_pending_approval_list_is_owner_scoped_and_read_only(approval_api):
+    alice = client.get("/api/agent/approvals", headers=_auth("alice"))
+    bob = client.get("/api/agent/approvals", headers=_auth("bob"))
+    assert alice.status_code == 200
+    assert bob.status_code == 200
+    assert len(alice.json()["approvals"]) == 1
+    pending = alice.json()["approvals"][0]
+    assert pending["run_id"] == approval_api
+    assert pending["tool"] == WRITE.tool
+    assert pending["payload"] == WRITE.payload
+    assert pending["status"] == "pending"
+    assert bob.json() == {"approvals": []}
+    # Listing is read-only; the original run remains blocked awaiting consent.
+    assert client.get(f"/api/agent/runs/{approval_api}/approval",
+                      headers=_auth("alice")).json()["status"] == "pending"
+
+
+def test_approval_list_fails_closed_when_flag_is_off(approval_api, monkeypatch):
+    monkeypatch.setenv("INDOONE_AGENT_DURABLE_APPROVAL_ENABLED", "false")
+    assert client.get("/api/agent/approvals", headers=_auth("alice")).json() == {"approvals": []}
+
+
+def test_approval_list_requires_authenticated_principal(approval_api):
+    assert client.get("/api/agent/approvals").status_code in (401, 403)
