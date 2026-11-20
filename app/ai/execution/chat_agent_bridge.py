@@ -24,7 +24,7 @@ from app.ai.agents.agent_async import execute_agent_async
 from app.ai.execution import langgraph_approval
 from app.ai.execution.confirmation import classify_reply
 from app.ai.execution.reply_guard import guard_reply
-from app.capabilities.connectors.store import get_agent_run
+from app.capabilities.connectors.store import get_agent_run, get_pending_email_action
 
 
 @dataclass(frozen=True)
@@ -43,6 +43,7 @@ def validate_opt_in(
     user_id: str,
     message: str,
     client_turn_id: str | None,
+    conversation_id: str | None = None,
     has_attachments: bool,
     has_approval_tokens: bool = False,
 ) -> None:
@@ -57,6 +58,16 @@ def validate_opt_in(
         raise HTTPException(status_code=422, detail="LangGraph chat mode does not yet support attachments")
     if has_approval_tokens:
         raise HTTPException(status_code=422, detail="approval tokens cannot be supplied in LangGraph chat mode")
+    # The legacy Gmail/GitHub pending proposal is scoped to this exact
+    # conversation. A new LangGraph action must not silently leapfrog it:
+    # the user must first confirm/cancel the original proposal in normal chat.
+    # Read failures propagate (fail closed) instead of assuming no pending write.
+    if conversation_id and get_pending_email_action(user_id, conversation_id) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="This conversation has a pending Gmail/GitHub action. "
+                   "Resolve it in normal chat before starting an Agent action.",
+        )
     # "Confirm" is an action in the OLD chat store, not proof of permission to
     # resume the LangGraph checkpoint. Never mix these two approval systems.
     if classify_reply(message) in ("confirm", "cancel"):
