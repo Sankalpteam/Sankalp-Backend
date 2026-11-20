@@ -68,11 +68,15 @@ template repos. Never claim 100% replacement just because tests are green.
 5. **Web / Android end-to-end + streaming + load**: The feature branch is not
    deployed; no live streaming/stream-retry, connection loss, reconnection,
    mobile client and concurrency evidence can be claimed from CI alone.
-6. **LangGraph durable human approval**: The upstream `ask_human` reference
-   tool is present but NOT wired to side-effecting tools. Correct resume
-   needs stable authenticated user/thread ownership, trusted approval tokens,
-   deduplication and idempotency across crashes and multiple requests.
-   In-memory/request-only graphs remain safe without resumable writes.
+6. **LangGraph durable human approval**: An opt-in, **single-action**
+   pause/approve/deny/resume bridge is implemented for the authenticated
+   `/api/agent` endpoint, but disabled by default and not production-tested.
+   The DB approval ledger atomically claims an owned blocked write *before*
+   dispatch; a crash/timeout must be manually reconciled, not replayed.
+   This is NOT general LangGraph checkpoint/resume: the upstream `ask_human`
+   reference remains unwired, as do multi-step graph resumes and streaming
+   provider/tool writes. Web/Android consent UI and live-provider E2E remain
+   blocking requirements.
 7. **Legacy deterministic planner**: Kept deliberately for compatibility with
    documented `/api/agent` tools/results; opt-in model planning covers only
    previously-unmatched authenticated **read** requests. A full cutover is
@@ -108,3 +112,36 @@ main checkout. The two backup branches and earlier cleanup branch are unchanged.
   replacement for OAuth consent.
 - Live provider reads, opt-in rollout, actual AWS server memory and Web/Android E2E remain pending.
 - No merge, production deploy, server restart or changes to main/backups.
+
+
+## Opt-in durable approval for isolated /api/agent write — branch checkpoint (2026-11-20)
+
+- Feature flag: \`INDOONE_AGENT_DURABLE_APPROVAL_ENABLED=false\` by default.
+- Migration \`0005_durable_agent_approvals\` creates one short-lived, per-owner
+  approval ledger, linked to existing \`agent_runs\` (no second database/server).
+  The action is stored only in the original run; the ledger stores a SHA-256
+  fingerprint, owner, expiry and one-time status.
+- A blocked **single-step** authenticated write (which passed connector
+  authorization but lacks approval) becomes \`awaiting_approval\` for 300 seconds.
+  Multi-step plans, anonymous requests, reads and connector-denied actions
+  are not enrolled. Legacy APIs are unchanged with the flag off.
+- \`GET /api/agent/runs/{run_id}/approval\` returns the exact proposed action
+  and expiry to its authenticated owner. The UI must display these details
+  before offering explicit approval or denial.
+- \`POST /api/agent/runs/{run_id}/approval\` with
+  \`{"decision":"approve"}\` or \`{"decision":"deny"}\` only accepts the decision.
+  No client-provided tool, identity or payload is ever dispatched. Approval
+  requires a server-issued short-lived signed token; the existing LangGraph
+  executor rechecks connector authorization.
+- Competing approvals serialize using SQLite write-lock or PostgreSQL row
+  lock. The run is durably \`claimed\` before the external write; repeat requests
+  cannot dispatch it again. Denial never executes. If execution or transport
+  fails without a verified outcome, status is \`needs_review\` and there is
+  **no automatic retry**. A crash between claim and completion leaves a
+  \`claimed\` record requiring operator reconciliation.
+- Unit/API test coverage includes cross-user denial, one-time claim,
+  expiry, tampering, explicit deny, duplicate POST and uncertain-provider
+  outcomes. CI and real Web/Android provider approval E2E are still gates.
+- **Do not turn on this feature, merge, deploy, or restart the existing
+  production 2 GiB host based solely on these tests.** A truly persistent
+  LangGraph checkpoint for multi-step approval chains is still open.
