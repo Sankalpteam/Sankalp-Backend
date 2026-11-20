@@ -8,6 +8,8 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from typing import Literal
+from app.ai.execution.chat_agent_bridge import validate_opt_in, run_opt_in_agent
 
 from app.ai.quality.answer_quality import assess_answer
 from app.ai.execution.account_context import accounts_instruction, without_stale_refusals
@@ -35,6 +37,7 @@ class StreamChatRequest(BaseModel):
     conversation_id: str | None = Field(default=None, max_length=128)
     file_id: str | None = Field(default=None, max_length=128)
     client_turn_id: str | None = Field(default=None, min_length=8, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$")
+    execution_mode: Literal["default", "langgraph"] = "default"
 
 
 class MemoryCandidatesRequest(BaseModel):
@@ -83,6 +86,12 @@ async def stream_chat(request: Request, body: StreamChatRequest) -> StreamingRes
 
         _admit(request, user_id)
 
+    if body.execution_mode == "langgraph":
+        validate_opt_in(
+            user_id=user_id, message=body.message, client_turn_id=body.client_turn_id,
+            has_attachments=bool(body.file_id), has_approval_tokens=False,
+        )
+
     # This admission runs *before* any GitHub/email tool. A client can retry
     # its transport, but a turn that may have written data cannot be replayed.
     if body.client_turn_id:
@@ -102,6 +111,49 @@ async def stream_chat(request: Request, body: StreamChatRequest) -> StreamingRes
             )
 
     action_chips.begin()
+
+    if body.execution_mode == "langgraph":
+        # Execute before opening the SSE response; failures keep their HTTP
+        # status and never silently fall back to a SECOND chat tool dispatch.
+        outcome = await run_opt_in_agent(user_id=user_id, message=body.message)
+        try:
+            _stream_store.append(
+                conversation_id,
+                [("user", body.message), ("assistant", outcome.reply)],
+                user_id=user_id,
+            )
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if body.client_turn_id:
+            try:
+                mark_turn_replied(user_id, body.client_turn_id)
+            except Exception:
+                logger.warning("Unable to mark LangGraph streamed turn replied", exc_info=True)
+        action_chips.reset()
+
+        async def agent_events():
+            yield "data: " + json.dumps(
+                {"type": "meta", "conversation_id": conversation_id}, ensure_ascii=False
+            ) + "\n\n"
+            yield "data: " + json.dumps(
+                {"type": "delta", "text": outcome.reply}, ensure_ascii=False
+            ) + "\n\n"
+            yield "data: " + json.dumps(
+                {
+                    "type": "done", "reply": outcome.reply,
+                    "action_chips": [], "sources": [],
+                    "agent_run_id": outcome.agent_run_id,
+                    "agent_status": outcome.agent_status,
+                },
+                ensure_ascii=False,
+            ) + "\n\n"
+
+        return StreamingResponse(
+            agent_events(), media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     # The same pipeline as /api/chat, not a lesser copy of it.
     #
