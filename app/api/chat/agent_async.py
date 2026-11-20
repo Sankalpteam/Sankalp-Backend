@@ -15,6 +15,7 @@ from app.ai.execution.tools import ToolResult
 from app.api.security.dependencies import current_user_id
 from app.ai.agents.agent_async import execute_agent_async
 from app.api.content.capabilities import AgentRequest, _scoped_user
+from app.capabilities.connectors.store import list_agent_runs
 
 router = APIRouter(tags=["capabilities"])
 
@@ -90,6 +91,28 @@ async def agent(request: AgentRequest, http_request: Request) -> dict[str, objec
 
 class AgentApprovalDecision(BaseModel):
     decision: Literal["approve", "deny"]
+
+
+@router.get("/agent/approvals")
+async def list_pending_agent_approvals(request: Request) -> dict[str, object]:
+    """List only this authenticated user's live, reviewable write approvals.
+
+    The normal /api/chat confirmation chips are a DIFFERENT workflow.
+    This endpoint advertises only already-paused LangGraph /api/agent runs,
+    never starts an action and never hands a client an approval token.
+    """
+    user_id = current_user_id(request)
+    if not durable_approval.enabled():
+        return {"approvals": []}
+
+    approvals: list[dict[str, object]] = []
+    for item in list_agent_runs(user_id, limit=100):
+        if item.get("status") != "awaiting_approval":
+            continue
+        pending = durable_approval.get(user_id, str(item["id"]))
+        if pending is not None and pending["status"] == "pending":
+            approvals.append(pending)
+    return {"approvals": approvals}
 
 
 @router.get("/agent/runs/{run_id}/approval")
