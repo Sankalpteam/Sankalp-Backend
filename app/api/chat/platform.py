@@ -23,6 +23,10 @@ from app.ai.memory.file_context import read_text_file
 from app.ai.memory.memory import extract_memory_candidates
 from app.ai.gateway.service import stream_generate
 from app.plugins.github.chat_tools import handle_github_chat_with_tools
+from app.plugins.email.email_assistant import handle_email_chat
+from app.capabilities.connectors.store import get_pending_email_action
+from app.ai.execution.confirmation import classify_reply_async
+from app.ai.gateway.ai_rules import EMAIL_PENDING_ACTION
 from app.web_research.grounding import split_grounded_sources
 from app.api.security.errors import REQUEST_FAILED_MESSAGE, provider_failure
 
@@ -164,23 +168,42 @@ async def stream_chat(request: Request, body: StreamChatRequest) -> StreamingRes
     # as one chunk - there is nothing to reveal gradually.
     tool_reply: str | None = None
     if user_id:
+        pending_email = None
         try:
-            tool_reply = await handle_github_chat_with_tools(
-                user_id,
-                body.message,
-                history=history,
-                conversation_id=conversation_id,
+            # A pending Zoho Mail action must be resolved BEFORE the GitHub
+            # router or a new model call. Otherwise the streamed CONFIRM/CANCEL
+            # could be answered as ordinary chat while the approval stays live.
+            pending_email = get_pending_email_action(user_id, conversation_id)
+            email_owns_this = bool(
+                pending_email
+                and str(pending_email.get("integration_id") or "").casefold() != "github"
             )
-
-            if tool_reply is None:
-                tool_reply = await run_tool_loop(
-                    user_id, conversation_id, body.message, history=history,
-                    extra_system_instruction=accounts,
+            if email_owns_this:
+                action_type = str(pending_email.get("action_type") or "")
+                decision = await classify_reply_async(body.message)
+                if action_type == "await_recipient" or decision in {"confirm", "cancel"}:
+                    tool_reply = await handle_email_chat(user_id, conversation_id, body.message)
+                else:
+                    tool_reply = EMAIL_PENDING_ACTION
+                # Never leave this branch for a second executor or plain LLM.
+                if tool_reply is None:
+                    raise RuntimeError("Pending email action did not produce a verified outcome")
+            else:
+                tool_reply = await handle_github_chat_with_tools(
+                    user_id,
+                    body.message,
+                    history=history,
+                    conversation_id=conversation_id,
                 )
+                if tool_reply is None:
+                    tool_reply = await run_tool_loop(
+                        user_id, conversation_id, body.message, history=history,
+                        extra_system_instruction=accounts,
+                    )
         except Exception:
             logger.exception("Sankalp streaming tool routing failed")
             from app.ai.execution.tool_intent import requires_tool_result
-            if requires_tool_result(body.message):
+            if pending_email or requires_tool_result(body.message):
                 raise HTTPException(
                     status_code=503,
                     detail="The requested tool operation could not be verified.",
