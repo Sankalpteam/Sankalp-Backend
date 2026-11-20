@@ -24,7 +24,7 @@ from app.ai.agents.agent import (
 )
 from app.ai.execution.agent_policy import deadline_failure, remaining_budget, should_retry
 from app.ai.execution.approval import decide_tool
-from app.ai.execution import durable_approval
+from app.ai.execution import langgraph_approval as durable_approval
 from app.ai.execution.tool_registry import get_tool_spec
 from app.ai.execution.langgraph_orchestrator import run_graph_execution
 from app.ai.execution.tools import ToolResult, run_tool_async
@@ -123,5 +123,5 @@ async def execute_agent_async(
                     pending.tool, approved, tokens, user_id=user_id
                 )
                 if decision.reason == "valid server-issued approval is required":
-                    durable_approval.stage(user_id, run_id, _serialize_step(pending))
+                    await durable_approval.stage(user_id, run_id, _serialize_step(pending))
     return execution
