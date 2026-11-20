@@ -329,3 +329,22 @@ def mark_provider_dispatched(*, reservation_id: str, key_id: str, requests_per_m
         except BaseException:
             db.rollback()
             raise
+
+
+def prune_rate_windows(*, older_than_minutes: int = 1440) -> int:
+    """Bound per-key admission metadata on the existing host, without Redis."""
+    _bounded(older_than_minutes, "older_than_minutes", minimum=60, maximum=10080)
+    cutoff = int(datetime.now(timezone.utc).timestamp() // 60) - older_than_minutes
+    with closing(database.connect()) as db:
+        if not db.table_exists("developer_key_rate_windows"):
+            return 0  # older production schema: never auto-enable or migrate
+        try:
+            db.begin_write()
+            removed = db.execute(
+                "DELETE FROM developer_key_rate_windows WHERE minute_bucket < ?", (cutoff,),
+            ).rowcount
+            db.commit()
+            return max(0, removed)
+        except BaseException:
+            db.rollback()
+            raise
