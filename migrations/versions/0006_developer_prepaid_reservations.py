@@ -43,6 +43,15 @@ def upgrade() -> None:
             UNIQUE(key_id, client_request_id)
         )
     """)
+    # Low-memory persistent per-key admission counter: no Redis required.
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS developer_key_rate_windows (
+            key_id TEXT NOT NULL REFERENCES developer_api_keys(key_id),
+            minute_bucket BIGINT NOT NULL,
+            request_count INTEGER NOT NULL DEFAULT 0 CHECK(request_count >= 0),
+            PRIMARY KEY (key_id, minute_bucket)
+        )
+    """)
     # Provider response IDs are bound to billable evidence, preventing the same
     # upstream response from being used in two separate billable requests.
     # Earlier unbillable evidence remains nullable for compatibility.
@@ -61,3 +70,4 @@ def downgrade() -> None:
     # retaining nullable evidence metadata is a safe downgrade.
     op.execute("DROP TABLE IF EXISTS developer_prepaid_reservations")
     op.execute("DROP TABLE IF EXISTS developer_prepaid_accounts")
+    op.execute("DROP TABLE IF EXISTS developer_key_rate_windows")
