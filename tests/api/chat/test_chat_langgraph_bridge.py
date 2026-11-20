@@ -379,7 +379,7 @@ def test_legacy_pending_write_cannot_be_bypassed_by_agent_mode(
         headers=_auth(),
     )
     assert response.status_code == 409, response.text
-    assert "pending Gmail/GitHub" in response.json()["detail"]
+    assert "pending Gmail/GitHub" in response.json()["message"]
     assert reads == [("alice", conversation)]
     # The rejected turn was not consumed, so it cannot mask a later
     # legitimate turn once the original proposal is resolved.
