@@ -134,7 +134,7 @@ def get(user_id: str, run_id: str) -> dict[str, Any] | None:
     with closing(database.connect()) as db:
         row = db.execute(
             "SELECT p.status, p.expires_at, p.created_at, p.step_hash, "
-            "r.blocked_steps FROM pending_agent_approvals p "
+            "r.blocked_steps, r.steps FROM pending_agent_approvals p "
             "JOIN agent_runs r ON r.id = p.run_id AND r.user_id = p.user_id "
             "WHERE p.user_id = ? AND p.run_id = ?",
             (user_id, run_id),
@@ -142,6 +142,14 @@ def get(user_id: str, run_id: str) -> dict[str, Any] | None:
     if row is None:
         return None
     step = _pending_step(row)
+    # A completed write moves from blocked_steps to steps in agent_runs.
+    if step is None and row["status"] in ("completed", "needs_review"):
+        try:
+            recorded = json.loads(row["steps"])
+            if len(recorded) == 1 and isinstance(recorded[0], dict):
+                step = recorded[0]
+        except (ValueError, TypeError):
+            pass
     if step is None or _step_fingerprint(step) != row["step_hash"]:
         # Never display or approve data that differs from the saved intent.
         return None
