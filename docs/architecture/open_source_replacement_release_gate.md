@@ -165,3 +165,14 @@ app/api/chat/platform.py, app/ai/agents/agent_async.py.
 - CI includes an actual SQLite LangGraph interrupt started from the chat endpoint, owner-only approval review and Command(resume=deny) via HTTP; no external provider write.
 - NOT DONE: transparent automatic routing, existing GitHub/email action migration, multi-step checkpoint resumes, connected-provider and device E2E, single-host 2 GiB AWS capacity, release rollback.
 - Feature OFF by default. DRAFT. DO NOT MERGE OR DEPLOY.
+
+## Legacy Gmail/GitHub approval race hardening (2026-11-20)
+
+- Audit found the older CONFIRM/CANCEL handlers in app/plugins/github/chat_tools.py and app/plugins/email/email_assistant.py read a saved proposal with get_pending_* and then deleted it in a separate database operation before executing. Parallel confirmations could both see the proposal and attempt the same provider write.
+- A minimal storage-level single-use safety guard consume_pending_email_action() now uses the EXISTING DB transaction: SQLite BEGIN IMMEDIATE, PostgreSQL SELECT ... FOR UPDATE. It confirms the authenticated owner, conversation ID, integration, action type, encrypted payload, created_at and expiration all still match the previewed proposal; expiration is rechecked under lock before claim.
+- GitHub uses consume_pending_github_action(); Zoho email uses consume_pending_email_action(). Only a successful atomic claim may reach an external write. All confirmations, cancellations, recipient-completion and malformed-payload cleanup check their original row, so neither a stale confirm nor a stale cancellation can erase a NEWER proposal.
+- Pending rows are consumed BEFORE side effects, meaning process crashes or timeouts cannot re-dispatch that particular stored action. This guarantees at most one attempted dispatch per pending proposal, NOT exactly-once remote delivery. Uncertain outcomes require checking the provider; no automatic replay.
+- Expired pending-record cleanup now deletes only the matching expired snapshot, not a concurrently replaced new proposal. Legacy GitHub delete helper also uses exact atomic claim instead of read-then-generic-delete.
+- Tests: 8-thread SQLite concurrent claims, two simultaneous GitHub CONFIRMs, two simultaneous Zoho mail CONFIRMs, cancel-vs-confirm racing, per-user/per-conversation isolation, replacement, expiry and wrong-integration rejection. A dedicated CI PostgreSQL job checks competing claims on actual PostgreSQL 16.
+- These changes are a SECURITY HARDENING of existing pending confirmation transport, not a new hand-built workflow or a claim that legacy Gmail/GitHub proposals now use upstream LangGraph interrupts. The new opt-in /api/agent approvals continue to use official LangGraph interrupt/resume/checkpointers. Full migration of normal /api/chat write proposals and live connected-provider E2E remain TODO.
+- Still OFF for new LangGraph chat mode. No AWS work, no main merge, no deployment, no new service or second database.
