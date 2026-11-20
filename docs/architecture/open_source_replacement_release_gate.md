@@ -176,3 +176,11 @@ app/api/chat/platform.py, app/ai/agents/agent_async.py.
 - Tests: 8-thread SQLite concurrent claims, two simultaneous GitHub CONFIRMs, two simultaneous Zoho mail CONFIRMs, cancel-vs-confirm racing, per-user/per-conversation isolation, replacement, expiry and wrong-integration rejection. A dedicated CI PostgreSQL job checks competing claims on actual PostgreSQL 16.
 - These changes are a SECURITY HARDENING of existing pending confirmation transport, not a new hand-built workflow or a claim that legacy Gmail/GitHub proposals now use upstream LangGraph interrupts. The new opt-in /api/agent approvals continue to use official LangGraph interrupt/resume/checkpointers. Full migration of normal /api/chat write proposals, Gmail provider integration, and live connected-provider E2E remain TODO.
 - Still OFF for new LangGraph chat mode. No AWS work, no main merge, no deployment, no new service or second database.
+
+## Step 4 — legacy pending-write isolation (2026-11-20)
+
+- Before either /api/chat or /api/chat/stream claims an opted-in LangGraph turn, check the authenticated user and exact conversation for an existing legacy Gmail/GitHub proposal.
+- If a legacy proposal is awaiting confirmation, return HTTP 409 and require the user to resolve that proposal in normal chat first. Do not create a LangGraph checkpoint, consume the turn ID or dispatch another tool.
+- If the pending-proposal store is unavailable, fail closed. Other users' and conversations' pending proposals do not block this user.
+- The same guard applies to the /api/platform/chat/stream alias. It does NOT migrate, approve, delete or consume any old proposal.
+- This is a safe isolation gate, not a claim that legacy Gmail/GitHub confirmations are fully migrated. Live connected-provider E2E and multi-step checkpoint resume are still pending. Flags remain OFF and production unchanged.
