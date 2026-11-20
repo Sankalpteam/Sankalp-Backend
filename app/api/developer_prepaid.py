@@ -274,12 +274,14 @@ def release_before_dispatch(*, reservation_id: str, provider_dispatch_started: b
             raise
 
 
-def mark_provider_dispatched(*, reservation_id: str, key_id: str) -> None:
+def mark_provider_dispatched(*, reservation_id: str, key_id: str, requests_per_minute: int = 10, max_inflight: int = 2) -> None:
     """One-way durable marker BEFORE the first upstream network request.
 
     A duplicate request or revoked key must not trigger a second provider
     call. Once recorded, operators must reconcile ambiguous outcomes.
     """
+    _bounded(requests_per_minute, "requests_per_minute", minimum=1, maximum=60)
+    _bounded(max_inflight, "max_inflight", minimum=1, maximum=8)
     ensure_schema()
     with closing(database.connect()) as db:
         try:
@@ -298,6 +300,24 @@ def mark_provider_dispatched(*, reservation_id: str, key_id: str) -> None:
             ).fetchone()
             if key is None or key["status"] != "active":
                 raise PermissionError("API key revoked before provider dispatch")
+            inflight = db.execute(
+                "SELECT COUNT(*) AS n FROM developer_prepaid_reservations "
+                "WHERE key_id = ? AND reservation_id != ? AND status = 'reserved' "
+                "AND dispatch_started_at IS NOT NULL",
+                (key_id, reservation_id),
+            ).fetchone()
+            if int(inflight["n"]) >= max_inflight:
+                raise PermissionError("key concurrent request limit reached")
+            minute_bucket = int(datetime.now(timezone.utc).timestamp() // 60)
+            admitted = db.execute(
+                "INSERT INTO developer_key_rate_windows (key_id, minute_bucket, request_count) "
+                "VALUES (?, ?, 1) ON CONFLICT(key_id, minute_bucket) "
+                "DO UPDATE SET request_count = developer_key_rate_windows.request_count + 1 "
+                "WHERE developer_key_rate_windows.request_count < ?",
+                (key_id, minute_bucket, requests_per_minute),
+            )
+            if admitted.rowcount != 1:
+                raise PermissionError("key per-minute request rate exceeded")
             changed = db.execute(
                 "UPDATE developer_prepaid_reservations SET dispatch_started_at = ?, updated_at = ? "
                 "WHERE reservation_id = ? AND status = 'reserved' AND dispatch_started_at IS NULL",
