@@ -223,3 +223,35 @@ def test_email_handler_never_claims_github_pending(monkeypatch):
     pending = _save(provider="github", action="github_write", payload=b"encrypted-github")
     assert asyncio.run(email_assistant.handle_email_chat("alice", "thread-1", "CONFIRM")) is None
     assert store.get_pending_github_action("alice", "thread-1") is not None
+
+
+def test_stale_github_cancel_cannot_delete_newer_email_proposal(monkeypatch):
+    """Old get()+unqualified delete() could erase a new provider's action."""
+    old_github = _save(
+        provider="github", action="github_write", payload=b"old-github-proposal"
+    )
+    new_email = _save(
+        provider="zoho_mail", action="send_email", payload=b"new-email-proposal"
+    )
+    # Simulate a GET that returned a Github snapshot before another request
+    # replaced that same user's conversation slot with a mail proposal.
+    monkeypatch.setattr(
+        store, "get_pending_github_action",
+        lambda user, conversation: old_github,
+    )
+    assert store.delete_pending_github_action("alice", "thread-1") is False
+    assert store.get_pending_email_action("alice", "thread-1") == new_email
+
+
+def test_same_user_older_snapshot_invalid_even_with_same_ciphertext():
+    old = _save(payload=b"same-ciphertext")
+    # A fresh proposal with the same payload still represents a new user
+    # intent; the created_at/expiry must also match the reviewed record.
+    store.save_pending_email_action(
+        "alice", "thread-1", "zoho_mail", "send_email",
+        b"same-ciphertext", _expiration(120),
+    )
+    new = store.get_pending_email_action("alice", "thread-1")
+    assert new is not None and new["expires_at"] != old["expires_at"]
+    assert store.consume_pending_email_action("alice", "thread-1", old) is None
+    assert store.consume_pending_email_action("alice", "thread-1", new) is not None
