@@ -255,6 +255,18 @@ def record_verified_usage(
             ),
         )
         inserted = cursor.rowcount == 1
+        if not inserted:
+            previous = db.execute(
+                "SELECT key_id, owner_id, model, provider, input_tokens, output_tokens "
+                "FROM developer_verified_usage WHERE request_id = ?",
+                (request_id,),
+            ).fetchone()
+            if (previous is None or str(previous["key_id"]) != key_id
+                or str(previous["owner_id"]) != str(row["owner_id"])
+                or str(previous["model"]) != model or str(previous["provider"]) != provider
+                or int(previous["input_tokens"]) != input_tokens
+                or int(previous["output_tokens"]) != output_tokens):
+                raise ValueError("Conflicting verified usage for existing request_id")
         if inserted:
             db.execute(
                 "UPDATE developer_api_keys SET last_used_at = ? WHERE key_id = ?",
@@ -285,3 +297,12 @@ async def developer_usage(request: Request) -> dict[str, object]:
         "currency": None,
         "amount_due": None,
     }
+
+
+@router.get("/wallet")
+async def developer_wallet(request: Request) -> dict[str, object]:
+    """Owner-only, read-only prepaid preparation; no funding or charges enabled."""
+    owner = _require_owner(request)
+    _require_enabled()
+    from app.api.developer_prepaid import wallet_snapshot
+    return wallet_snapshot(owner)
