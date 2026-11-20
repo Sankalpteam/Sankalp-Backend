@@ -157,6 +157,12 @@ async def _conversation_cleanup_loop() -> None:
             deleted = store.purge_expired_closed(max_age_days=7)
             if deleted:
                 logger.info("expired conversations deleted", extra={"deleted_count": deleted})
+            # Reuse the existing hourly cleanup loop: never spin up another
+            # service or retain unbounded minute-bucket rows on the 2 GiB host.
+            from app.api.developer_prepaid import prune_rate_windows
+            pruned = prune_rate_windows()
+            if pruned:
+                logger.info("expired developer rate windows deleted", extra={"deleted_count": pruned})
         except Exception:
             logger.exception("expired conversation cleanup failed")
         await asyncio.sleep(3600)
