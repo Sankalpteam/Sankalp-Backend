@@ -340,3 +340,112 @@ def test_real_langgraph_interrupt_from_chat_is_denied_without_provider_write(
         json={"decision": "approve"}, headers=_auth("alice"),
     )
     assert repeated.status_code == 409
+
+
+@pytest.mark.parametrize("route", ["/api/chat", "/api/chat/stream", "/api/platform/chat/stream"])
+def test_legacy_pending_write_cannot_be_bypassed_by_agent_mode(
+    bridge, monkeypatch, route
+):
+    conversation = str(uuid4())
+    reads = []
+
+    def pending(user_id, conversation_id):
+        reads.append((user_id, conversation_id))
+        return {
+            "user_id": "alice",
+            "conversation_id": conversation,
+            "integration_id": "github",
+            "action_type": "pending_github_write",
+        }
+
+    async def no_dispatch(*args, **kwargs):
+        pytest.fail("Agent must not run while legacy action is awaiting consent")
+
+    monkeypatch.setattr(
+        "app.ai.execution.chat_agent_bridge.get_pending_email_action", pending
+    )
+    monkeypatch.setattr(
+        "app.ai.execution.chat_agent_bridge.execute_agent_async", no_dispatch
+    )
+    turn = _turn()
+    response = client.post(
+        route,
+        json={
+            "message": "count words: hello world",
+            "execution_mode": "langgraph",
+            "conversation_id": conversation,
+            "client_turn_id": turn,
+        },
+        headers=_auth(),
+    )
+    assert response.status_code == 409, response.text
+    assert "pending Gmail/GitHub" in response.json()["detail"]
+    assert reads == [("alice", conversation)]
+    # The rejected turn was not consumed, so it cannot mask a later
+    # legitimate turn once the original proposal is resolved.
+    state = client.get(f"/api/chat/turns/{turn}", headers=_auth())
+    assert state.status_code == 404
+
+
+@pytest.mark.parametrize("route", ["/api/chat", "/api/chat/stream"])
+def test_pending_store_failure_fails_closed_before_claim(bridge, monkeypatch, route):
+    def unavailable(*args):
+        raise RuntimeError("pending approval database unavailable")
+
+    async def no_dispatch(*args, **kwargs):
+        pytest.fail("No agent tool may dispatch when legacy state cannot be read")
+
+    monkeypatch.setattr(
+        "app.ai.execution.chat_agent_bridge.get_pending_email_action", unavailable
+    )
+    monkeypatch.setattr(
+        "app.ai.execution.chat_agent_bridge.execute_agent_async", no_dispatch
+    )
+    turn = _turn()
+    with pytest.raises(RuntimeError, match="pending approval database unavailable"):
+        client.post(
+            route,
+            json={
+                "message": "count words: hello world",
+                "execution_mode": "langgraph",
+                "conversation_id": str(uuid4()),
+                "client_turn_id": turn,
+            },
+            headers=_auth(),
+        )
+    state = client.get(f"/api/chat/turns/{turn}", headers=_auth())
+    assert state.status_code == 404
+
+
+@pytest.mark.parametrize("route", ["/api/chat", "/api/chat/stream"])
+def test_unrelated_user_or_conversation_pending_does_not_block(
+    bridge, monkeypatch, route
+):
+    reads = []
+
+    def pending(user, conversation):
+        reads.append((user, conversation))
+        return None
+
+    async def no_action(message, **kwargs):
+        return AgentExecution(message=message, steps=(), results=(), run_id=None)
+
+    monkeypatch.setattr(
+        "app.ai.execution.chat_agent_bridge.get_pending_email_action", pending
+    )
+    monkeypatch.setattr(
+        "app.ai.execution.chat_agent_bridge.execute_agent_async", no_action
+    )
+    conversation = str(uuid4())
+    response = client.post(
+        route,
+        json={
+            "message": "count words: hello",
+            "execution_mode": "langgraph",
+            "conversation_id": conversation,
+            "client_turn_id": _turn(),
+        },
+        headers=_auth("alice"),
+    )
+    assert response.status_code == 200, response.text
+    assert reads == [("alice", conversation)]
