@@ -13,10 +13,25 @@ for unrestricted access to other users' tool credentials.
 The only AWS host currently allocated is the existing 2 GiB RAM production
 server. This branch must not start a second service or modify that host.
 
+**2026-11-20 development check:** CI validated Python tests, SQLite migrations,
+PostgreSQL store/migration checks, and the frontend web/Android builds. CI is
+not proof of live merchant settlement, provider resale permission, production
+load capacity, or successful real-world provider billing.
+
 ## Implemented in the existing development branches
 
 - Backend Alembic revision `0005_developer_api_keys`: owner-scoped key
   metadata and separately indexed provider-verified token-evidence table.
+- New revision `0006_prepaid_reserve`: owner-scoped integer-paise prepaid balances
+  and transactional per-request holds; no publicly callable balance crediting.
+- `app/api/developer_prepaid.py`: internal-only reservation, duplicate-request
+  protection, settlement using verified token counts, and safe pre-dispatch
+  releases. Reservations retain their holds if provider outcome is ambiguous.
+- `app/api/developer_provider_metering.py`: strict Gemini and Groq final-response
+  usage metadata validation, fail-closed on missing/contradictory token evidence,
+  model fallback mismatch and currently unpriced thought/cache/tool usage.
+- `GET /api/developers/wallet`: owner-scoped read-only readiness snapshot,
+  with paid inference and funding explicitly disabled.
 - `app/api/developer_keys.py`: Firebase-authenticated, owner-only
   `GET /api/developers/status`, `GET/POST /api/developers/keys`,
   `DELETE /api/developers/keys/{id}`, and
@@ -38,14 +53,20 @@ server. This branch must not start a second service or modify that host.
 1. **Billable public inference route.** `/v1/chat/completions` is NOT
    implemented or enabled. Keys must never be accepted as Firebase user
    credentials on `/api/chat`, `/api/agent` or connector endpoints.
-2. **Real provider metering.** Connect request-scoped Gemini/Groq usage
-   metadata directly to the immutable evidence ledger. Never estimate
-   saleable tokens as characters divided by four. Fail closed when provider
-   usage metadata is missing, late, ambiguous or from a fallback provider.
-3. **Budget reservation before provider dispatch.** Implement transactional
-   prepaid balance/credit reservations, model token ceilings, per-key rate
-   limits and atomic reconciliation. An already-sent request must not
-   create a double charge during client retry or provider timeout.
+2. **Real provider metering integration.** Internal strict Gemini/Groq usage
+   extractors and regression tests now exist, but upstream provider HTTP
+   requests are **not yet bound** to the reserved request and immutable ledger.
+   Never estimate saleable tokens as characters divided by four. Fail closed
+   for missing/late/ambiguous usage or unexpected fallback models; separately
+   approve pricing for reasoning, tool calls and cached input before billing.
+3. **Budget reservation wiring and invariant enforcement.** Internal holds,
+   integer-paise capture and duplicate-request protection are now implemented
+   and unit-tested, but **not wired into any public inference endpoint**.
+   A future authenticated gateway must persist and atomically enforce provider
+   dispatch state, per-key rate limits, model token ceilings, hard spending caps,
+   and unknown-outcome reconciliation; do not silently release holds after
+   ambiguous upstream timeouts. A customer-facing payments ledger, verified
+   funding and operator dispute workflow are still absent.
 4. **Approved model aliases, costs and INR pricing.** The frontend's
    `sankalp-mini/lite/standard/pro/max` labels and rupee rates are
    placeholders, NOT five functioning independent models. Fix exact
