@@ -11,6 +11,7 @@ from app.api.developer_prepaid import (
     capture_verified,
     metered_charge_paise,
     mark_provider_dispatched,
+    prune_rate_windows,
     release_before_dispatch,
     reserve_prepaid,
     wallet_snapshot,
@@ -215,3 +216,21 @@ def test_per_key_request_rate_and_inflight_limit_are_durable(account):
         mark_provider_dispatched(reservation_id=c, key_id="key-a", requests_per_minute=2, max_inflight=2)
     assert wallet_snapshot("alice")["held_paise"] == 200
     assert release_before_dispatch(reservation_id=c, provider_dispatch_started=False)
+
+
+def test_expired_rate_windows_are_pruned_without_touching_recent_buckets(account):
+    import time
+    now = int(time.time() // 60)
+    with database.connect() as db:
+        db.execute(
+            "INSERT INTO developer_key_rate_windows (key_id, minute_bucket, request_count) "
+            "VALUES (?, ?, ?)", ("key-a", now - 3000, 1),
+        )
+        db.execute(
+            "INSERT INTO developer_key_rate_windows (key_id, minute_bucket, request_count) "
+            "VALUES (?, ?, ?)", ("key-a", now, 1),
+        )
+    assert prune_rate_windows() == 1
+    with database.connect() as db:
+        rows = db.execute("SELECT minute_bucket FROM developer_key_rate_windows").fetchall()
+    assert [int(row["minute_bucket"]) for row in rows] == [now]
