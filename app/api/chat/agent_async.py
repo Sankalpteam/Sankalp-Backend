@@ -8,7 +8,7 @@ import time
 
 from app.ai.agents.agent import AgentStep, MAX_AGENT_RUNTIME_SECONDS, MAX_AGENT_STEPS, _serialize_result, _serialize_step
 from app.ai.agents.agent_async import _run_with_retry_async
-from app.ai.execution import durable_approval
+from app.ai.execution import langgraph_approval as durable_approval
 from app.ai.execution.approval import issue_approval_token
 from app.ai.execution.langgraph_orchestrator import run_graph_execution
 from app.ai.execution.tools import ToolResult
@@ -126,7 +126,7 @@ async def decide_agent_approval(
             raise HTTPException(status_code=503, detail="approval service unavailable") from exc
 
     try:
-        saved = durable_approval.decide(user_id, run_key, approve=body.decision == "approve")
+        saved = await durable_approval.decide(user_id, run_key, approve=body.decision == "approve")
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="approval not found") from exc
     except durable_approval.ApprovalExpired as exc:
