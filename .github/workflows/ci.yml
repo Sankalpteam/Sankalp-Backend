@@ -88,6 +88,7 @@ jobs:
           tests/capabilities/connectors/test_database_postgres.py
           tests/ai/memory/test_conversation_store_postgres.py
           tests/ai/execution/test_langgraph_approval_postgres.py
+          tests/plugins/email/test_pending_action_postgres.py
 
   # Optional Composio SDK compatibility, on GitHub-hosted CI only.
   # This installs NO package on the single production AWS 2 GiB instance.
