@@ -52,13 +52,15 @@ async def execute_agent_async(
     approved_tools: set[str] | frozenset[str] | None = None,
     contacts: list[dict[str, Any]] | None = None,
     approval_tokens: Iterable[str] | None = None,
+    chat_handoff: bool = False,
 ) -> AgentExecution:
     normalized = message.strip()
     if not normalized or len(normalized) > MAX_AGENT_MESSAGE_LENGTH:
         return AgentExecution(message=message, steps=(), results=())
 
-    approved = frozenset(approved_tools or ())
-    tokens = _bounded_approval_tokens(approval_tokens)
+    # An opted-in chat request is never a source of write authority.
+    approved = frozenset() if chat_handoff else frozenset(approved_tools or ())
+    tokens = () if chat_handoff else _bounded_approval_tokens(approval_tokens)
     memories = _load_memory_context(user_id, normalized)
 
     run_id: str | None = None
@@ -75,6 +77,24 @@ async def execute_agent_async(
         from app.ai.agents.model_planner import plan_model_read_steps
 
         planned = await plan_model_read_steps(normalized, user_id=user_id)
+    if chat_handoff:
+        # Admission allowlist: no model/tool-planner output may invoke an
+        # unapproved external/execution action via the chat bridge. One isolated
+        # official consent-gated write may PAUSE, never execute immediately.
+        specs = [get_tool_spec(step.tool) for step in planned]
+        can_read = all(
+            spec is not None and spec.risk == "read" and not spec.requires_approval
+            for spec in specs
+        )
+        can_pause_single_write = (
+            len(planned) == 1
+            and durable_approval.enabled()
+            and specs[0] is not None
+            and specs[0].risk == "write"
+            and specs[0].requires_approval
+        )
+        if not (can_read or can_pause_single_write):
+            planned = ()
     result = await run_graph_execution(
         planned,
         user_id=user_id,
