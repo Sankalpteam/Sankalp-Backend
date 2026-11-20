@@ -68,15 +68,12 @@ template repos. Never claim 100% replacement just because tests are green.
 5. **Web / Android end-to-end + streaming + load**: The feature branch is not
    deployed; no live streaming/stream-retry, connection loss, reconnection,
    mobile client and concurrency evidence can be claimed from CI alone.
-6. **LangGraph durable human approval**: An opt-in, **single-action**
-   pause/approve/deny/resume bridge is implemented for the authenticated
-   `/api/agent` endpoint, but disabled by default and not production-tested.
-   The DB approval ledger atomically claims an owned blocked write *before*
-   dispatch; a crash/timeout must be manually reconciled, not replayed.
-   This is NOT general LangGraph checkpoint/resume: the upstream `ask_human`
-   reference remains unwired, as do multi-step graph resumes and streaming
-   provider/tool writes. Web/Android consent UI and live-provider E2E remain
-   blocking requirements.
+6. **LangGraph durable human approval**: Upstream `interrupt()`,
+   `Command(resume=...)` and official SQLite/PostgreSQL checkpointers now
+   govern the opt-in, **single-action** approval workflow. The app retains
+   one atomic owner-scoped status claim to prevent provider-write replay
+   after a crash. This is NOT general multi-step graph resume. Feature OFF
+   by default; client consent UI and real connected-provider E2E are pending.
 7. **Legacy deterministic planner**: Kept deliberately for compatibility with
    documented `/api/agent` tools/results; opt-in model planning covers only
    previously-unmatched authenticated **read** requests. A full cutover is
@@ -114,34 +111,40 @@ main checkout. The two backup branches and earlier cleanup branch are unchanged.
 - No merge, production deploy, server restart or changes to main/backups.
 
 
-## Opt-in durable approval for isolated /api/agent write — branch checkpoint (2026-11-20)
+## Upstream LangGraph HITL replacement — development checkpoint (2026-11-20)
 
-- Feature flag: `INDOONE_AGENT_DURABLE_APPROVAL_ENABLED=false` by default.
-- Migration `0005_durable_agent_approvals` creates one short-lived, per-owner
-  approval ledger, linked to existing `agent_runs` (no second database/server).
-  The action is stored only in the original run; the ledger stores a SHA-256
-  fingerprint, owner, expiry and one-time status.
-- A blocked **single-step** authenticated write (which passed connector
-  authorization but lacks approval) becomes `awaiting_approval` for 300 seconds.
-  Multi-step plans, anonymous requests, reads and connector-denied actions
-  are not enrolled. Legacy APIs are unchanged with the flag off.
-- `GET /api/agent/runs/{run_id}/approval` returns the exact proposed action
-  and expiry to its authenticated owner. The UI must display these details
-  before offering explicit approval or denial.
-- `POST /api/agent/runs/{run_id}/approval` with
-  `{"decision":"approve"}` or `{"decision":"deny"}` only accepts the decision.
-  No client-provided tool, identity or payload is ever dispatched. Approval
-  requires a server-issued short-lived signed token; the existing LangGraph
-  executor rechecks connector authorization.
-- Competing approvals serialize using SQLite write-lock or PostgreSQL row
-  lock. The run is durably `claimed` before the external write; repeat requests
-  cannot dispatch it again. Denial never executes. If execution or transport
-  fails without a verified outcome, status is `needs_review` and there is
-  **no automatic retry**. A crash between claim and completion leaves a
-  `claimed` record requiring operator reconciliation.
-- Unit/API test coverage includes cross-user denial, one-time claim,
-  expiry, tampering, explicit deny, duplicate POST and uncertain-provider
-  outcomes. CI and real Web/Android provider approval E2E are still gates.
-- **Do not turn on this feature, merge, deploy, or restart the existing
-  production 2 GiB host based solely on these tests.** A truly persistent
-  LangGraph checkpoint for multi-step approval chains is still open.
+- Replaced the temporary custom `durable_approval.py` state machine and
+  `0005_durable_agent_approvals` ledger migration with the official
+  `StateGraph` + `interrupt()` + `Command(resume=...)` and maintained
+  `AsyncSqliteSaver` / `AsyncPostgresSaver` backends in
+  `app/ai/execution/langgraph_approval.py`.
+- SQLite checkpoints share the **existing application database file**;
+  PostgreSQL checkpoints share the configured database. There is no new
+  server, daemon, SaaS or separate hosted database. Both checkpoint libraries
+  are upstream dependencies (SQLite 3.1.3, PostgreSQL 3.2.1) and MIT-licensed.
+- The upstream checkpointer owns workflow pause and resume. The existing
+  application `agent_runs` record remains authoritative for user ownership
+  and original tool arguments. A small SQL compare-and-set from
+  `awaiting_approval` to `approval_claimed` is deliberately retained:
+  LangGraph checkpoint replay alone does **not** guarantee exactly-once
+  side effects on remote GitHub/Gmail providers.
+- The pure review graph pauses **before** side effects. Resume validates
+  the authenticated owner and hashes the exact stored action, then consumes
+  the original graph checkpoint using `Command(resume=...)`. The existing
+  authenticated LangGraph tool executor is invoked only after the one-time
+  claim and successful human approval.
+- Only one isolated, blocked, authorized write is supported. Multi-step graph
+  interrupt chains, streaming tools and arbitrary model-written actions are
+  still outside this gate. `INDOONE_AGENT_DURABLE_APPROVAL_ENABLED=false`
+  remains the default; unconfigured deployments do not activate it.
+- An uncertain provider outcome or crash after claim can **never** trigger
+  automatic replay; owner-specific manual reconciliation remains required.
+  The resulting guarantee is **at most one attempted dispatch per run**, NOT
+  guaranteed exactly-once external delivery.
+- CI tests exercise the real official SQLite interrupt and persisted resume
+  across connections, owner isolation, tampering, expiry, deny, concurrent
+  duplicate submission and uncertain results. PostgreSQL end-to-end checkpoint
+  and real connected-account tests are still required release gates.
+- **DO NOT MERGE OR DEPLOY** without additional Web/Android consent UX,
+  provider E2E, PostgreSQL checkpointer validation where applicable,
+  security review and actual single-host 2 GiB memory/load measurements.
