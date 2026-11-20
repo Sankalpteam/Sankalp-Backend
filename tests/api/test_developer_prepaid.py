@@ -68,22 +68,22 @@ def test_verified_capture_reconciles_integer_paise_exactly_once(account):
     with pytest.raises(PermissionError, match="unverified"):
         capture_verified(
             reservation_id=reference, provider="gemini",
-            upstream_model="gemini-test", input_tokens=125, output_tokens=250,
+            upstream_model="gemini-test", upstream_response_id="response-001", input_tokens=125, output_tokens=250,
         )
     assert capture_verified(
         reservation_id=reference, provider="gemini",
-        upstream_model="gemini-test", input_tokens=125, output_tokens=250,
+        upstream_model="gemini-test", upstream_response_id="response-001", input_tokens=125, output_tokens=250,
         provider_reported=True,
     ) == (3, True)
     assert capture_verified(
         reservation_id=reference, provider="gemini",
-        upstream_model="gemini-test", input_tokens=125, output_tokens=250,
+        upstream_model="gemini-test", upstream_response_id="response-001", input_tokens=125, output_tokens=250,
         provider_reported=True,
     ) == (3, False)
     with pytest.raises(ValueError, match="conflicting"):
         capture_verified(
             reservation_id=reference, provider="gemini",
-            upstream_model="gemini-test", input_tokens=125, output_tokens=251,
+            upstream_model="gemini-test", upstream_response_id="response-001", input_tokens=125, output_tokens=251,
             provider_reported=True,
         )
     wallet = wallet_snapshot("alice")
@@ -118,17 +118,17 @@ def test_timeout_remains_held_and_release_requires_no_dispatch(account):
         release_before_dispatch(reservation_id=reference, provider_dispatch_started=True)
     with pytest.raises(ValueError, match="mismatch"):
         capture_verified(reservation_id=reference, provider="groq",
-            upstream_model="gemini-test", input_tokens=1, output_tokens=1, provider_reported=True)
+            upstream_model="gemini-test", upstream_response_id="response-001", input_tokens=1, output_tokens=1, provider_reported=True)
     with pytest.raises(PermissionError, match="cap"):
         capture_verified(reservation_id=reference, provider="gemini",
-            upstream_model="gemini-test", input_tokens=0, output_tokens=2_000_000, provider_reported=True)
+            upstream_model="gemini-test", upstream_response_id="response-001", input_tokens=0, output_tokens=2_000_000, provider_reported=True)
     assert wallet_snapshot("alice")["held_paise"] == 100
     assert release_before_dispatch(reservation_id=reference, provider_dispatch_started=False) is True
     assert release_before_dispatch(reservation_id=reference, provider_dispatch_started=False) is False
     assert wallet_snapshot("alice")["available_paise"] == 1000
     with pytest.raises(PermissionError, match="released"):
         capture_verified(reservation_id=reference, provider="gemini",
-            upstream_model="gemini-test", input_tokens=1, output_tokens=1, provider_reported=True)
+            upstream_model="gemini-test", upstream_response_id="response-001", input_tokens=1, output_tokens=1, provider_reported=True)
 
 
 def test_reservation_cannot_overspend_under_concurrent_requests(account):
@@ -180,3 +180,22 @@ def test_revocation_before_dispatch_blocks_provider_call(account):
         mark_provider_dispatched(reservation_id=reference, key_id="key-a")
     assert release_before_dispatch(reservation_id=reference, provider_dispatch_started=False)
     assert wallet_snapshot("alice")["held_paise"] == 0
+
+
+def test_upstream_response_id_cannot_be_invoiced_twice(account):
+    first, _ = _reserve("request-one", 100)
+    second, _ = _reserve("request-two", 100)
+    mark_provider_dispatched(reservation_id=first, key_id="key-a")
+    mark_provider_dispatched(reservation_id=second, key_id="key-a")
+    assert capture_verified(reservation_id=first, provider="gemini", upstream_model="gemini-test",
+        upstream_response_id="upstream-response-one", input_tokens=25, output_tokens=25,
+        provider_reported=True) == (1, True)
+    with pytest.raises(Exception):
+        capture_verified(reservation_id=second, provider="gemini", upstream_model="gemini-test",
+            upstream_response_id="upstream-response-one", input_tokens=25, output_tokens=25,
+            provider_reported=True)
+    assert wallet_snapshot("alice")["held_paise"] == 100
+    with database.connect() as db:
+        n = db.execute("SELECT COUNT(*) AS n FROM developer_verified_usage "
+            "WHERE upstream_response_id = ?", ("upstream-response-one",)).fetchone()
+        assert n["n"] == 1
