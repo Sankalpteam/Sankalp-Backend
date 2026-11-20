@@ -78,6 +78,14 @@ def run_graph_execution_sync(
         step = pending[cursor]
         decision = decide_tool(step.tool, approved_tools, approval_tokens, user_id=user_id)
         if not decision.allowed:
+            # An unresolved human-approval gate stops the entire remaining plan.
+            # Never execute later steps after a write the user has not approved.
+            if decision.requires_approval:
+                return {
+                    "blocked": state["blocked"] + pending[cursor:],
+                    "cursor": len(pending),
+                    "stopped": True,
+                }
             return {"blocked": state["blocked"] + (step,), "cursor": cursor + 1}
 
         prior = state["results"]
