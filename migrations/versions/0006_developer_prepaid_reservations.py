@@ -28,6 +28,8 @@ def upgrade() -> None:
             owner_id TEXT NOT NULL,
             key_id TEXT NOT NULL REFERENCES developer_api_keys(key_id),
             client_request_id TEXT NOT NULL,
+            request_sha256 TEXT NOT NULL,
+            dispatch_started_at TEXT,
             model TEXT NOT NULL,
             provider TEXT NOT NULL CHECK(provider IN ('gemini', 'groq')),
             upstream_model TEXT NOT NULL,
