@@ -55,6 +55,7 @@ async def run_graph_execution(
     approval_tokens: tuple[str, ...],
     deadline: float,
     execute_with_retry: Callable[[str, str, float, str], Awaitable[tuple[ToolResult, int]]],
+    trusted_web_read: bool = False,
 ) -> GraphExecution:
     """Execute through LangGraph StateGraph; no implicit retries or writable checkpoint.
 
@@ -78,8 +79,14 @@ async def run_graph_execution(
             }
 
         step = pending[cursor]
-        decision = decide_tool(step.tool, approved_tools, approval_tokens, user_id=user_id)
-        if not decision.allowed:
+        # The only non-ToolSpec exception is the operator-gated public search
+        # adapter. It runs through the existing search supervisor, never writes,
+        # and cannot authorize any other unregistered or MCP-provided name.
+        public_web_read = trusted_web_read and step.tool == "search_web"
+        decision = None if public_web_read else decide_tool(
+            step.tool, approved_tools, approval_tokens, user_id=user_id
+        )
+        if decision is not None and not decision.allowed:
             # An unresolved human-approval gate stops the entire remaining plan.
             # Never execute later steps after a write the user has not approved.
             if decision.requires_approval:
