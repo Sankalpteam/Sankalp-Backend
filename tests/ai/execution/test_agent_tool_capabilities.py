@@ -87,3 +87,20 @@ def test_read_only_multi_step_plan_and_empty_plan_are_allowed():
     assert admit_chat_plan([])
     assert admit_chat_plan(["calculator", "text_stats", "github_list_branches"])
     assert not admit_chat_plan(["calculator", "sandbox_execution"])
+
+
+
+def test_public_web_read_is_separate_operator_opt_in_only():
+    assert classify_registered_tool("search_web").route == "blocked"
+    assert not admit_chat_plan(["search_web"])
+    policy = classify_registered_tool("search_web", allow_web_research=True)
+    assert policy.source == "web_research"
+    assert policy.risk == "read"
+    assert policy.route == "read"
+    assert admit_chat_plan(["search_web"], allow_web_research=True)
+    assert not admit_chat_plan(
+        ["search_web", "github_delete_branch"],
+        allow_web_research=True, allow_approval_write=True,
+    )
+    assert not admit_chat_plan(["mcp:unreviewed/search"], allow_web_research=True)
+    assert not admit_chat_plan(["prepare_email_to_send"], allow_web_research=True)
