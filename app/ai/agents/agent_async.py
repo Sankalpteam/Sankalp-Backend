@@ -100,7 +100,9 @@ async def _run_public_web_read(
             tool, text[:8000] if truncated else text,
             safe=True, retryable=False, truncated=truncated,
         ), 0
-    except (ValueError, TypeError, asyncio.TimeoutError):
+    except Exception:
+        # Fail closed without propagating provider details or echoing private
+        # query contents into an error response or public logs.
         return ToolResult(tool, "Public web research failed validation or timed out", safe=False), 0
 
 
