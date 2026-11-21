@@ -125,3 +125,35 @@ def test_langgraph_unapproved_write_halts_following_steps():
     assert calls == []
     assert result["steps"] == ()
     assert [step.index for step in result["blocked_steps"]] == [1, 2]
+
+
+
+def test_public_web_search_requires_explicit_trusted_read_and_never_grants_mcp():
+    calls = []
+
+    async def read(tool, payload, deadline, user_id):
+        calls.append((tool, payload, user_id))
+        return ToolResult(tool, "public source: https://example.com", safe=True), 0
+
+    async def scenario(enabled, tool):
+        return await run_graph_execution(
+            (AgentStep(1, tool, '{"query":"public science news"}'),),
+            user_id="alice", approved_tools=frozenset(), approval_tokens=(),
+            deadline=monotonic() + 20, execute_with_retry=read,
+            trusted_web_read=enabled,
+        )
+
+    disabled = asyncio.run(scenario(False, "search_web"))
+    assert disabled["steps"] == ()
+    assert len(disabled["blocked_steps"]) == 1
+    assert calls == []
+
+    enabled = asyncio.run(scenario(True, "search_web"))
+    assert len(enabled["steps"]) == 1
+    assert enabled["results"][0].safe is True
+    assert calls == [("search_web", '{"query":"public science news"}', "alice")]
+
+    untrusted = asyncio.run(scenario(True, "mcp:untrusted.example/tool"))
+    assert untrusted["steps"] == ()
+    assert len(untrusted["blocked_steps"]) == 1
+    assert len(calls) == 1
