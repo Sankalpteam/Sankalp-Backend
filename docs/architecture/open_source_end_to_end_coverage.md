@@ -17,6 +17,11 @@ The LangGraph Python packages and checkpointers already power the **isolated
 single-write** approval path. Multi-write and dependent multi-step checkpoint
 resume are NOT yet done. Normal chat keeps its legacy flow until proven parity.
 The default chat-LangGraph switch is OFF.
+The separate `INDOONE_CHAT_LANGGRAPH_WEB_RESEARCH_ENABLED` switch is also
+OFF by default. The adapter reuses the pre-existing authenticated public-web
+supervisor, query redaction and result sanitization; it does not enable unknown
+MCP servers, Gmail access or any write. CI uses mocked evidence only.
+
 
 ## Truthful capability matrix
 
@@ -27,7 +32,7 @@ The default chat-LangGraph switch is OFF.
 | Instagram | Registered read APIs and permission metadata | Registered reads allowed, if authenticated connected access | Connector credential E2E; future writes separately reviewed |
 | Gmail / Zoho Mail | Dedicated authenticated email tools, pending confirmation and encryption | Not yet a registered graph executor; still legacy-only | Official adapter, model routing parity, exact message preview, owner-bound permission and resume |
 | Composio | Optional official SDK Gmail read, optionally via official MCP Python SDK | Not yet a registered graph executor; legacy-tool-loop read only | Trusted explicit MCP adapter and SDK compatibility, account auth, bounded execution; no send/delete by default |
-| Web research | Existing public-web tool loop | Not yet the same graph executor | Official read-only adapter, citations and evidence parity |
+| Web research | Existing public-web supervisor reused in an optional LangGraph read-only adapter | Only when `INDOONE_CHAT_LANGGRAPH_WEB_RESEARCH_ENABLED=true` and the user explicitly asks for research | Live public-provider evidence, structured citations parity and Web/Android E2E |
 | Code sandbox | Existing guarded executor | Blocked in chat opt-in despite approval metadata | Separate execution consent, isolation and resource tests |
 | Voice and additional social/media services | Their existing endpoint/channel implementations | Not automatically graph-executable | Individual adapters and end-to-end release gates |
 
