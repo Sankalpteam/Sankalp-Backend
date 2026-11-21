@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 from typing import Any, Iterable
 
@@ -49,6 +50,62 @@ async def _run_with_retry_async(tool: str, payload: str, deadline: float, user_i
         retry_count += 1
         result = await run_tool_async(tool, payload, max_runtime_seconds=remaining, user_id=user_id)
     return result, retry_count
+
+
+def _zoho_graph_read_enabled() -> bool:
+    return os.getenv("INDOONE_CHAT_LANGGRAPH_ZOHO_READ_ENABLED", "false").strip().lower() == "true"
+
+
+def _explicit_zoho_inbox_read(message: str) -> bool:
+    """Never turn an email write/mixed-provider request into a mailbox read."""
+    if not re.search(r"\\bzoho\\b", message, re.IGNORECASE):
+        return False
+    if re.search(r"\\bgmail\\b", message, re.IGNORECASE):
+        return False
+    from app.plugins.email.email_tools import _EMAIL_READ_INTENT, _EMAIL_WRITE_INTENT
+
+    return bool(_EMAIL_READ_INTENT.search(message)) and not _EMAIL_WRITE_INTENT.search(message)
+
+
+async def _run_zoho_inbox_read(
+    tool: str, payload: str, deadline: float, user_id: str
+) -> tuple[ToolResult, int]:
+    """One bounded, authenticated read through the existing sanitizing mail tool."""
+    if tool != "list_recent_emails" or not user_id.strip():
+        return ToolResult(tool, "Zoho read tool not authorized", safe=False), 0
+    try:
+        args = json.loads(payload)
+        if args != {"provider": "zoho_mail", "limit": 5}:
+            raise ValueError("Unexpected mailbox arguments")
+        remaining = remaining_budget(deadline)
+        if remaining <= 0:
+            return deadline_failure(tool), 0
+        from app.ai.execution.tool_loop import dispatch_tool
+
+        response = await asyncio.wait_for(
+            dispatch_tool(user_id, "", tool, args),
+            timeout=min(10.0, remaining),
+        )
+        if not isinstance(response, dict) or response.get("ok") is not True:
+            return ToolResult(tool, "Zoho mailbox is not available or not connected", safe=False), 0
+        rows = response.get("emails")
+        if not isinstance(rows, list):
+            raise ValueError("Invalid mailbox response")
+        # The legacy tool already sanitizes untrusted email text. Only expose
+        # bounded headers; no message body, draft ID, attachment or write token.
+        allowed = ("subject", "from", "date", "snippet")
+        headers = [
+            {
+                key: str(row[key])[:180]
+                for key in allowed if key in row and isinstance(row[key], str)
+            }
+            for row in rows[:5] if isinstance(row, dict)
+        ]
+        summary = json.dumps({"provider": "Zoho Mail", "emails": headers,
+                              "count": len(headers)}, ensure_ascii=False)
+        return ToolResult(tool, summary, safe=True, retryable=False), 0
+    except Exception:
+        return ToolResult(tool, "Zoho read result could not be verified", safe=False), 0
 
 
 def _public_research_enabled() -> bool:
@@ -134,6 +191,13 @@ async def execute_agent_async(
     planned = build_agent_steps(normalized, user_id=user_id, contacts=contacts)[:MAX_AGENT_STEPS]
     deadline = time.monotonic() + MAX_AGENT_RUNTIME_SECONDS
     public_research = bool(chat_handoff and _public_research_enabled())
+    zoho_read = bool(chat_handoff and _zoho_graph_read_enabled())
+    if not planned and zoho_read and _explicit_zoho_inbox_read(normalized):
+        planned = (AgentStep(
+            index=1, tool="list_recent_emails",
+            payload=json.dumps({"provider": "zoho_mail", "limit": 5}),
+            requires_approval=False,
+        ),)
     if not planned and public_research:
         from app.web_research.tools import wants_web_research
 
@@ -153,6 +217,7 @@ async def execute_agent_async(
         tuple(step.tool for step in planned),
         allow_approval_write=durable_approval.enabled(),
         allow_web_research=public_research,
+        allow_zoho_read=zoho_read,
     ):
         # The policy views every registered local/connector tool, not only
         # "plugins"; specialized Gmail/Composio/MCP paths remain legacy-only
@@ -163,6 +228,8 @@ async def execute_agent_async(
     ) -> tuple[ToolResult, int]:
         if public_research and tool == "search_web":
             return await _run_public_web_read(tool, payload, end, principal)
+        if zoho_read and tool == "list_recent_emails":
+            return await _run_zoho_inbox_read(tool, payload, end, principal)
         return await _run_with_retry_async(tool, payload, end, principal)
 
     result = await run_graph_execution(
@@ -173,6 +240,7 @@ async def execute_agent_async(
         deadline=deadline,
         execute_with_retry=execute_with_policy,
         trusted_web_read=public_research,
+        trusted_zoho_read=zoho_read,
     )
     steps = result["steps"]
     blocked = result["blocked_steps"]
@@ -193,7 +261,14 @@ async def execute_agent_async(
             run_id=run_id,
             status=status,
             steps=[_serialize_step(step) for step in execution.steps],
-            results=[_serialize_result(item) for item in execution.results],
+            results=[
+                # Mail headers belong in the authenticated chat reply, not a
+                # second long-lived agent execution audit record.
+                {**_serialize_result(item), "output": "[mail headers omitted from audit]"}
+                if zoho_read and item.name == "list_recent_emails"
+                else _serialize_result(item)
+                for item in execution.results
+            ],
             blocked_steps=[_serialize_step(step) for step in execution.blocked_steps],
             retry_counts=list(execution.retry_counts),
         )
