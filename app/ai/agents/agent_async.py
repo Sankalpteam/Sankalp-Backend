@@ -58,9 +58,9 @@ def _zoho_graph_read_enabled() -> bool:
 
 def _explicit_zoho_inbox_read(message: str) -> bool:
     """Never turn an email write/mixed-provider request into a mailbox read."""
-    if not re.search(r"\\bzoho\\b", message, re.IGNORECASE):
+    if not re.search(r"\bzoho\b", message, re.IGNORECASE):
         return False
-    if re.search(r"\\bgmail\\b", message, re.IGNORECASE):
+    if re.search(r"\bgmail\b", message, re.IGNORECASE):
         return False
     from app.plugins.email.email_tools import _EMAIL_READ_INTENT, _EMAIL_WRITE_INTENT
 
