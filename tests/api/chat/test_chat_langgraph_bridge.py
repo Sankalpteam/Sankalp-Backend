@@ -449,3 +449,95 @@ def test_unrelated_user_or_conversation_pending_does_not_block(
     )
     assert response.status_code == 200, response.text
     assert reads == [("alice", conversation)]
+
+
+
+def test_chat_opt_in_can_use_existing_sanitized_public_web_read(monkeypatch, bridge):
+    from app.ai.agents import agent_async
+    from app.ai.agents import model_planner
+    from app.ai.execution import tool_loop
+
+    monkeypatch.setenv("INDOONE_CHAT_LANGGRAPH_WEB_RESEARCH_ENABLED", "true")
+    monkeypatch.setattr(agent_async, "build_agent_steps", lambda *a, **k: ())
+    monkeypatch.setattr(agent_async, "_load_memory_context", lambda *a: ())
+
+    async def no_planner(*args, **kwargs):
+        raise AssertionError("Explicit public web research must not call model planner")
+
+    monkeypatch.setattr(model_planner, "plan_model_read_steps", no_planner)
+    calls = []
+
+    async def vetted_supervisor(user_id, conversation_id, name, arguments, **kwargs):
+        calls.append((user_id, conversation_id, name, dict(arguments)))
+        return {
+            "ok": True,
+            "result": {
+                "status": "ok",
+                "results": [{
+                    "title": "Verified public source",
+                    "url": "https://example.org/research",
+                    "snippet": "Official published reference",
+                }],
+            },
+        }
+
+    monkeypatch.setattr(tool_loop, "dispatch_tool", vetted_supervisor)
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "research official published science news",
+            "execution_mode": "langgraph", "client_turn_id": _turn(),
+        },
+        headers=_auth("alice"),
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["agent_status"] == "completed"
+    assert "Verified public source" in body["reply"]
+    assert calls == [
+        ("alice", "", "search_web",
+         {"query": "research official published science news"}),
+    ]
+
+
+def test_public_web_graph_adapter_is_off_by_default(monkeypatch, bridge):
+    from app.ai.agents import agent_async, model_planner
+    from app.ai.execution import tool_loop
+
+    monkeypatch.setenv("INDOONE_CHAT_LANGGRAPH_WEB_RESEARCH_ENABLED", "false")
+    monkeypatch.setattr(agent_async, "build_agent_steps", lambda *a, **k: ())
+    monkeypatch.setattr(agent_async, "_load_memory_context", lambda *a: ())
+    async def no_plan(*a, **k):
+        return ()
+    monkeypatch.setattr(model_planner, "plan_model_read_steps", no_plan)
+    async def cannot_search(*a, **k):
+        raise AssertionError("Default-off graph must not dispatch public search")
+    monkeypatch.setattr(tool_loop, "dispatch_tool", cannot_search)
+
+    response = client.post(
+        "/api/chat",
+        json={"message": "research latest science news",
+              "execution_mode": "langgraph", "client_turn_id": _turn()},
+        headers=_auth("alice"),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["agent_status"] == "no_action"
+
+
+def test_public_web_graph_adapter_refuses_private_query_without_network(monkeypatch):
+    import asyncio
+    import time
+    from app.ai.agents import agent_async
+    from app.ai.execution import tool_loop
+
+    async def no_dispatch(*a, **k):
+        raise AssertionError("Private query must not reach research providers")
+
+    monkeypatch.setattr(tool_loop, "dispatch_tool", no_dispatch)
+    result, retries = asyncio.run(agent_async._run_public_web_read(
+        "search_web", '{"query":"research my api_key: super-secret"}',
+        time.monotonic() + 10, "alice",
+    ))
+    assert retries == 0
+    assert not result.safe
+    assert "super-secret" not in result.output
