@@ -541,3 +541,97 @@ def test_public_web_graph_adapter_refuses_private_query_without_network(monkeypa
     assert retries == 0
     assert not result.safe
     assert "super-secret" not in result.output
+
+
+
+def test_explicit_zoho_inbox_graph_read_is_bounded_and_excludes_audit_mail_content(
+    monkeypatch, bridge
+):
+    from app.ai.agents import agent_async
+    from app.ai.execution import tool_loop
+
+    monkeypatch.setenv("INDOONE_CHAT_LANGGRAPH_ZOHO_READ_ENABLED", "true")
+    monkeypatch.setattr(agent_async, "build_agent_steps", lambda *a, **k: ())
+    monkeypatch.setattr(agent_async, "_load_memory_context", lambda *a: ())
+    audit = []
+    requests = []
+
+    monkeypatch.setattr(agent_async, "update_agent_run", lambda **kw: audit.append(kw))
+    async def sanitized_mail(user, conversation, name, args, **kwargs):
+        requests.append((user, conversation, name, dict(args)))
+        return {
+            "ok": True, "count": 1,
+            "emails": [{
+                "subject": "Project planning",
+                "from": "trusted@example.org",
+                "date": "2026-11-21",
+                "snippet": "Review the plan",
+                "body": "NEVER INCLUDE PRIVATE BODY",
+            }],
+        }
+    monkeypatch.setattr(tool_loop, "dispatch_tool", sanitized_mail)
+
+    result = client.post("/api/chat", json={
+        "message": "Show my Zoho inbox",
+        "execution_mode": "langgraph", "client_turn_id": _turn(),
+    }, headers=_auth("alice"))
+    assert result.status_code == 200, result.text
+    data = result.json()
+    assert data["agent_status"] == "completed"
+    assert "Project planning" in data["reply"]
+    assert "NEVER INCLUDE PRIVATE BODY" not in data["reply"]
+    assert requests == [(
+        "alice", "", "list_recent_emails",
+        {"provider": "zoho_mail", "limit": 5},
+    )]
+    assert len(audit) == 1
+    assert all("Project planning" not in row.get("output", "") for row in audit[0]["results"])
+    assert audit[0]["results"][0]["output"] == "[mail headers omitted from audit]"
+
+
+@pytest.mark.parametrize("message", [
+    "Show my Zoho inbox and send an email",
+    "Delete old Zoho mail and show my inbox",
+    "Show my Gmail and Zoho inbox",
+    "Read the private Zoho email with subject invoice",
+])
+def test_zoho_graph_read_refuses_writes_mixed_providers_and_individual_mail(
+    message, monkeypatch, bridge
+):
+    from app.ai.agents import agent_async, model_planner
+    from app.ai.execution import tool_loop
+    monkeypatch.setenv("INDOONE_CHAT_LANGGRAPH_ZOHO_READ_ENABLED", "true")
+    monkeypatch.setattr(agent_async, "build_agent_steps", lambda *a, **k: ())
+    monkeypatch.setattr(agent_async, "_load_memory_context", lambda *a: ())
+    async def no_plan(*a, **k):
+        return ()
+    async def no_mail(*a, **k):
+        raise AssertionError("Forbidden Zoho intent reached an email executor")
+    monkeypatch.setattr(model_planner, "plan_model_read_steps", no_plan)
+    monkeypatch.setattr(tool_loop, "dispatch_tool", no_mail)
+    result = client.post("/api/chat", json={
+        "message": message, "execution_mode": "langgraph",
+        "client_turn_id": _turn(),
+    }, headers=_auth("alice"))
+    assert result.status_code == 200, result.text
+    assert result.json()["agent_status"] == "no_action"
+
+
+def test_zoho_graph_read_is_disabled_without_separate_operator_flag(monkeypatch, bridge):
+    from app.ai.agents import agent_async, model_planner
+    from app.ai.execution import tool_loop
+    monkeypatch.setenv("INDOONE_CHAT_LANGGRAPH_ZOHO_READ_ENABLED", "false")
+    monkeypatch.setattr(agent_async, "build_agent_steps", lambda *a, **k: ())
+    monkeypatch.setattr(agent_async, "_load_memory_context", lambda *a: ())
+    async def no_plan(*a, **k):
+        return ()
+    async def no_mail(*a, **k):
+        raise AssertionError("Flag-off mail read dispatched")
+    monkeypatch.setattr(model_planner, "plan_model_read_steps", no_plan)
+    monkeypatch.setattr(tool_loop, "dispatch_tool", no_mail)
+    result = client.post("/api/chat", json={
+        "message": "Show my Zoho inbox",
+        "execution_mode": "langgraph", "client_turn_id": _turn(),
+    }, headers=_auth("alice"))
+    assert result.status_code == 200, result.text
+    assert result.json()["agent_status"] == "no_action"
