@@ -38,7 +38,8 @@ class AgentToolCapability:
 
 
 def classify_registered_tool(
-    name: str, *, allow_approval_write: bool = False, allow_web_research: bool = False
+    name: str, *, allow_approval_write: bool = False,
+    allow_web_research: bool = False, allow_zoho_read: bool = False
 ) -> AgentToolCapability:
     """Always fail closed for untrusted MCP names, undeclared executors or risk.
 
@@ -47,6 +48,13 @@ def classify_registered_tool(
     connector capability and token scope before making a provider request.
     """
     normalized = str(name or "").strip().lower()
+    # Only a single explicit legacy read executor is eligible for the initial
+    # graph adapter. No email draft, reply, send, delete or arbitrary MCP tool.
+    if normalized == "list_recent_emails" and allow_zoho_read:
+        return AgentToolCapability(
+            normalized, "legacy_email", "read", "read",
+            "trusted authenticated Zoho inbox list, limited to five sanitized headers",
+        )
     if normalized == SEARCH_WEB_DECLARATION["name"]:
         if allow_web_research:
             return AgentToolCapability(
@@ -82,6 +90,7 @@ def admit_chat_plan(
     tool_names: Sequence[str], *,
     allow_approval_write: bool = False,
     allow_web_research: bool = False,
+    allow_zoho_read: bool = False,
 ) -> bool:
     """An all-READ plan, or one isolated write to be PAUSED; never a mixed plan."""
     if not tool_names:
@@ -90,6 +99,7 @@ def admit_chat_plan(
         classify_registered_tool(
             name, allow_approval_write=allow_approval_write,
             allow_web_research=allow_web_research,
+            allow_zoho_read=allow_zoho_read,
         ).route
         for name in tool_names
     ]
