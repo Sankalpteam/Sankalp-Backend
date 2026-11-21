@@ -32,7 +32,7 @@ async def test_a_busy_gemini_is_answered_from_the_tool_results(monkeypatch) -> N
 
     answer = await tool_loop._answer_from_tool_results(
         "ivattina weather hegide",
-        executed=(("search_web", '{"results": [{"title": "Bengaluru weather"}]}'),),
+        executed=(("search_web", '{"ok": true, "result": {"title": "Bengaluru weather", "temperature_c": 24, "condition": "cloud cover"}}'),),
         history=[],
         extra_system_instruction="",
     )
@@ -40,6 +40,7 @@ async def test_a_busy_gemini_is_answered_from_the_tool_results(monkeypatch) -> N
     assert answer == "Bengaluru is 24 degrees with cloud cover."
     assert "search_web" in seen["context"]
     assert "Bengaluru weather" in seen["context"]
+    assert "temperature_c" in seen["context"]
 
 
 @pytest.mark.asyncio
@@ -57,9 +58,9 @@ async def test_without_groq_the_original_error_stands(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_with_no_tool_results_the_answer_is_still_a_sentence(monkeypatch) -> None:
+async def test_with_no_tool_results_does_not_fabricate_an_answer(monkeypatch) -> None:
     async def fake_groq(message, history=None, document_context="", **_kwargs):
-        return "I could not look that up."
+        raise AssertionError("Groq must not invent a tool result")
 
     monkeypatch.setattr("app.ai.gateway.groq_service.groq_available", lambda: True)
     monkeypatch.setattr("app.ai.gateway.groq_service.generate_groq_reply", fake_groq)
@@ -71,4 +72,4 @@ async def test_with_no_tool_results_the_answer_is_still_a_sentence(monkeypatch) 
         extra_system_instruction="",
     )
 
-    assert answer == "I could not look that up."
+    assert answer is None

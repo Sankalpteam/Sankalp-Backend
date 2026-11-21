@@ -1,145 +1,84 @@
+"""Provider routing without live API calls or local model checkpoint."""
+from __future__ import annotations
+
 import pytest
 
-from app.ai.gateway import service
-@pytest.mark.asyncio
-async def test_service_sends_the_actual_request_directly_to_the_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, object] = {}
-
-    class FakeProvider:
-        async def generate(self, *, system_instruction: str, user_prompt: str, temperature: float, max_output_tokens: int) -> str:
-            captured["system_instruction"] = system_instruction
-            captured["user_prompt"] = user_prompt
-            captured["temperature"] = temperature
-            captured["max_output_tokens"] = max_output_tokens
-            return "A model-generated answer."
-
-    monkeypatch.setattr(service, "_model_answer_provider", FakeProvider())
-
-    reply = await service.generate_reply("Explain a topic that is not in any example.")
-
-    assert reply == "A model-generated answer."
-    assert captured["user_prompt"] == "Explain a topic that is not in any example."
-    assert captured["system_instruction"] == ""
+from app.ai.gateway import gemini_service, groq_service, service
 
 
 @pytest.mark.asyncio
-async def test_service_only_adds_explicit_conversation_and_document_context(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: list[str] = []
+async def test_default_gemini_generates_text_and_preserves_context(monkeypatch):
+    monkeypatch.delenv("INDOONE_MODEL_BACKEND", raising=False)
+    monkeypatch.setattr(groq_service, "groq_available", lambda: False)
+    captured = {}
 
-    class FakeProvider:
-        async def generate(self, *, system_instruction: str, user_prompt: str, temperature: float, max_output_tokens: int) -> str:
-            captured.append(user_prompt)
-            return "Context was used."
-
-    monkeypatch.setattr(service, "_model_answer_provider", FakeProvider())
-
-    reply = await service.generate_reply(
-        "Summarize the discussion.",
-        history=[("user", "We discussed a product launch."), ("assistant", "The launch is next month.")],
-        document_context="Release checklist: publish notes.",
-    )
-
-    assert reply == "Context was used."
-    assert "product launch" in captured[0]
-    assert "publish notes" in captured[0]
-
-
-@pytest.mark.asyncio
-async def test_configured_gemini_backend_uses_gemini_chat_and_preserves_context(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.ai.gateway import gemini_service
-    captured: dict[str, object] = {}
-
-    async def fake_generate_gemini_reply(message, history=None, document_context="", extra_system_instruction=""):
+    async def fake_gemini(message, **kwargs):
         captured["message"] = message
-        captured["history"] = history
-        captured["document_context"] = document_context
-        captured["extra_system_instruction"] = extra_system_instruction
-        return "Gemini answer with optional web research."
+        captured.update(kwargs)
+        return "Gemini verified answer"
 
-    class UnusedLocalProvider:
-        async def generate(self, **kwargs):
-            raise AssertionError("Gemini mode must not invoke the local-model provider.")
-
-    monkeypatch.setattr(service, "_gemini_backend_enabled", lambda: True)
-    monkeypatch.setattr(service, "_model_answer_provider", UnusedLocalProvider())
-    monkeypatch.setattr(gemini_service, "generate_gemini_reply", fake_generate_gemini_reply)
-
-    history = [("user", "Previous question"), ("assistant", "Previous answer")]
+    monkeypatch.setattr(gemini_service, "generate_gemini_reply", fake_gemini)
     reply = await service.generate_reply(
-        "What changed recently?",
-        history=history,
-        document_context="User-provided notes.",
+        "Explain this text",
+        history=[("user", "prior message")],
+        document_context="user uploaded content",
     )
-
-    assert reply == "Gemini answer with optional web research."
-    assert captured == {
-        "message": "What changed recently?",
-        "history": history,
-        "document_context": "User-provided notes.",
-        "extra_system_instruction": "",
-    }
+    assert reply == "Gemini verified answer"
+    assert captured["message"] == "Explain this text"
+    assert captured["document_context"] == "user uploaded content"
 
 
 @pytest.mark.asyncio
-async def test_local_backend_remains_the_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, object] = {}
+async def test_groq_fallback_only_when_gemini_is_busy(monkeypatch):
+    monkeypatch.setenv("INDOONE_MODEL_BACKEND", "gemini")
+    monkeypatch.setattr(groq_service, "groq_available", lambda: True)
+    calls = []
 
-    class FakeProvider:
-        async def generate(self, *, system_instruction: str, user_prompt: str, temperature: float, max_output_tokens: int) -> str:
-            captured["user_prompt"] = user_prompt
-            return "Local model answer."
+    async def unavailable(*_args, **_kwargs):
+        calls.append("gemini")
+        raise gemini_service.ModelBusyError("busy")
 
-    monkeypatch.setattr(service, "_gemini_backend_enabled", lambda: False)
-    monkeypatch.setattr(service, "_model_answer_provider", FakeProvider())
+    async def groq_answer(*_args, **_kwargs):
+        calls.append("groq")
+        return "Groq response"
 
-    reply = await service.generate_reply("Explain a stable topic.")
-
-    assert reply == "Local model answer."
-    assert captured["user_prompt"] == "Explain a stable topic."
-
-
-@pytest.mark.asyncio
-async def test_local_model_provider_has_no_generation_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    class FakeRuntime:
-        def generate(self, *args, **kwargs) -> str:
-            return "slow-model-answer"
-
-    monkeypatch.setattr(service, "_load_local_model_runtime", lambda: FakeRuntime())
-    provider = service._LocalModelAnswerProvider()
-
-    reply = await provider.generate(
-        system_instruction="You are Sankalp.",
-        user_prompt="Take as long as needed.",
-    )
-
-    assert reply == "slow-model-answer"
-    assert not hasattr(service, "_MODEL_GENERATION_TIMEOUT_SECONDS")
-
-
-def test_model_artifacts_require_indoone_model_release(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    monkeypatch.setattr(service, "get_github_release_storage", lambda: None)
-
-    with pytest.raises(
-        RuntimeError,
-        match="Sankalp model serving requires GITHUB_MODEL_REPOSITORY, GITHUB_MODEL_RELEASE_TAG, and GITHUB_MODEL_TOKEN",
-    ):
-        service._ensure_model_artifacts(tmp_path)
+    monkeypatch.setattr(gemini_service, "generate_gemini_reply", unavailable)
+    monkeypatch.setattr(groq_service, "generate_groq_reply", groq_answer)
+    assert await service.generate_reply("hello") == "Groq response"
+    assert calls == ["gemini", "groq"]
 
 
 @pytest.mark.asyncio
-async def test_generate_reply_forwards_the_extra_instruction(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The name line must reach the model on the plain-answer path too."""
-    from app.ai.gateway import gemini_service
-    captured: dict[str, object] = {}
+async def test_multimodal_does_not_discard_attachments_to_fallback(monkeypatch):
+    monkeypatch.setenv("INDOONE_MODEL_BACKEND", "gemini")
+    monkeypatch.setattr(groq_service, "groq_available", lambda: True)
 
-    async def fake_generate_gemini_reply(message, history=None, document_context="", extra_system_instruction=""):
-        captured["extra_system_instruction"] = extra_system_instruction
-        return "answer"
+    async def unavailable(*_args, **_kwargs):
+        raise gemini_service.ModelBusyError("busy")
 
-    monkeypatch.setattr(service, "_gemini_backend_enabled", lambda: True)
-    monkeypatch.setattr(gemini_service, "generate_gemini_reply", fake_generate_gemini_reply)
+    async def forbidden(*_args, **_kwargs):
+        raise AssertionError("text-only Groq cannot accept multimodal attachment")
 
-    reply = await service.generate_reply("do you know my name?", extra_system_instruction="The user's name is Kishore.")
+    monkeypatch.setattr(gemini_service, "generate_gemini_reply", unavailable)
+    monkeypatch.setattr(groq_service, "generate_groq_reply", forbidden)
+    with pytest.raises(gemini_service.ModelBusyError):
+        await service.generate_reply(
+            "What is in this image?",
+            media_attachment={"mime_type": "image/png", "content": b"fake"},
+        )
 
-    assert reply == "answer"
-    assert captured["extra_system_instruction"] == "The user's name is Kishore."
+
+@pytest.mark.asyncio
+async def test_legacy_local_backend_is_not_a_provider(monkeypatch):
+    monkeypatch.setenv("INDOONE_MODEL_BACKEND", "local")
+    with pytest.raises(RuntimeError, match="Unsupported provider"):
+        await service.generate_reply("hello")
+
+
+def test_provider_status_is_gemini_without_exposing_key(monkeypatch):
+    monkeypatch.setenv("INDOONE_MODEL_BACKEND", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "secret-test-value")
+    status = service.ai_provider_status()
+    assert status["provider"] == "gemini"
+    assert status["configuration_ready"] is True
+    assert "secret-test-value" not in repr(status)

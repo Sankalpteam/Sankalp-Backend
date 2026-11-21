@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from app.ai.agents.coding import build_code_tool_payload
+from app.ai.execution.coding import build_code_tool_payload
 from app.ai.agents.intent import Intent, classify_intent
 from app.ai.execution.tool_registry import get_tool_spec, tool_names
 from app.ai.execution.tools import ToolResult, run_tool

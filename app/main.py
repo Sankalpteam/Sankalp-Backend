@@ -511,7 +511,5 @@ async def health_details() -> dict[str, object]:
         "sqlite": sqlite_runtime_status(),
         "ai": {
             **ai_service.ai_provider_status(),
-            "model_artifacts_checked": ai_service._ARTIFACT_CHECK_COMPLETED,
-            "model_runtime_ready": ai_service._runtime is not None,
         },
     }

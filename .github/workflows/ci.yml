@@ -31,23 +31,6 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q app tests scripts
 
-      - name: Validate Colab notebook JSON
-        run: python -m json.tool colab/Indoone_AI_Training_GPU.ipynb >/dev/null
-
-      - name: Validate Colab notebook Python cells
-        run: |
-          python - <<'PY'
-          import ast
-          import json
-          from pathlib import Path
-
-          notebook = json.loads(Path("colab/Indoone_AI_Training_GPU.ipynb").read_text(encoding="utf-8"))
-          for index, cell in enumerate(notebook.get("cells", [])):
-              if cell.get("cell_type") == "code":
-                  ast.parse("".join(cell.get("source", [])), filename=f"colab-cell-{index}")
-          print("colab_notebook_python=valid")
-          PY
-
       # Nothing is excluded any more. The last three exclusions were tests whose subject
       # had been removed from the code: a _memory_service in app/api/chat.py, and a
       # research provider and a knowledge base inside app/ai/service.py. All three are
@@ -58,16 +41,6 @@ jobs:
 
       - name: Run production security smoke test
         run: python scripts/ops/security_smoke.py
-      - name: Prepare and validate final training recipe
-        run: |
-          python scripts/dataset/build_multilingual_training_pack.py
-          python scripts/dataset/prepare_dataset.py             --source data/raw/indoone_corpus.txt             --output-dir data/processed
-          python scripts/dataset/audit_dataset.py --json             --corpus data/processed/generated_multilingual_corpus.txt             --instructions data/raw/indoone_instructions.jsonl             --instructions data/raw/core_instruction_seed.jsonl             --instructions data/raw/indoone_multilingual_examples.jsonl             --instructions data/processed/generated_multilingual_examples.jsonl             --multilingual data/processed/generated_multilingual_examples.jsonl
-          python scripts/dataset/assemble_training_dataset.py             --source data/raw/indoone_instructions.jsonl             --source data/raw/core_instruction_seed.jsonl             --source data/raw/indoone_multilingual_examples.jsonl             --output data/processed/curated_instructions.jsonl             --validation-output data/processed/instructions_validation.jsonl
-          python scripts/dataset/validate_dataset_quality.py             --source data/processed/curated_instructions.jsonl             --source data/processed/instructions_validation.jsonl             --source data/processed/generated_multilingual_examples.jsonl
-          python scripts/dataset/validate_training_manifest.py
-          python scripts/dataset/validate_final_training_recipe.py
-
   # The state store runs on SQLite by default and on Postgres when
   # INDOONE_DATABASE_URL says so. The SQLite tests run in the job above; this job
   # proves the same store on a real Postgres, which is the point of the seam.

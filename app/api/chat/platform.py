@@ -14,6 +14,7 @@ from app.ai.execution.account_context import accounts_instruction, without_stale
 from app.ai.execution.request_context import conversation_instruction
 from app.ai.execution.tool_failure import failure_line, take_tool_failure
 from app.ai.execution.tool_loop import run_tool_loop
+from app.ai.execution.turn_idempotency import claim_turn, mark_turn_replied
 from app.ai.execution import action_chips
 from app.ai.memory.conversation_store import ConversationStore
 from app.ai.memory.file_context import read_text_file
@@ -33,6 +34,7 @@ class StreamChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=20_000)
     conversation_id: str | None = Field(default=None, max_length=128)
     file_id: str | None = Field(default=None, max_length=128)
+    client_turn_id: str | None = Field(default=None, min_length=8, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$")
 
 
 class MemoryCandidatesRequest(BaseModel):
@@ -68,7 +70,9 @@ async def stream_chat(request: Request, body: StreamChatRequest) -> StreamingRes
     document_context = ""
     if body.file_id:
         try:
-            document_context = read_text_file(body.file_id)
+            document_context = read_text_file(body.file_id, user_id=user_id)
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -78,6 +82,24 @@ async def stream_chat(request: Request, body: StreamChatRequest) -> StreamingRes
         from app.api.chat.chat import _admit
 
         _admit(request, user_id)
+
+    # This admission runs *before* any GitHub/email tool. A client can retry
+    # its transport, but a turn that may have written data cannot be replayed.
+    if body.client_turn_id:
+        if not user_id:
+            raise HTTPException(status_code=401, detail="authenticated user required for turn idempotency")
+        try:
+            status = claim_turn(
+                user_id, body.client_turn_id, message=body.message,
+                conversation_id=body.conversation_id, file_id=body.file_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if status != "new":
+            raise HTTPException(
+                status_code=409,
+                detail="This chat turn was already received. Its outcome may be uncertain; check the conversation or connected app before trying again.",
+            )
 
     action_chips.begin()
 
@@ -103,6 +125,13 @@ async def stream_chat(request: Request, body: StreamChatRequest) -> StreamingRes
                     extra_system_instruction=accounts,
                 )
         except Exception:
+            logger.exception("Sankalp streaming tool routing failed")
+            from app.ai.execution.tool_intent import requires_tool_result
+            if requires_tool_result(body.message):
+                raise HTTPException(
+                    status_code=503,
+                    detail="The requested tool operation could not be verified.",
+                )
             tool_reply = None
 
     # The same rule as /api/chat: a failed tool hands its reason to the model.
@@ -169,6 +198,12 @@ async def stream_chat(request: Request, body: StreamChatRequest) -> StreamingRes
             )
         except (ValueError, PermissionError) as exc:
             logger.warning("Streaming answer could not be stored: %s", exc)
+
+        if body.client_turn_id:
+            try:
+                mark_turn_replied(user_id, body.client_turn_id)
+            except Exception:
+                logger.warning("Unable to mark streamed chat turn replied", exc_info=True)
 
         # The chips ride on the last event, so a client that only streams has the same
         # follow-ups the blocking endpoint returns: Confirm/Cancel for a held write, the

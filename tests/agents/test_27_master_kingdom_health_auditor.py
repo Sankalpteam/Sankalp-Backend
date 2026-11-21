@@ -250,3 +250,19 @@ def test_a_chat_request_is_still_refused_without_a_token(monkeypatch) -> None:
     response = TestClient(app).post("/api/chat", json={"message": "hello"})
 
     assert response.status_code == 401
+
+
+def test_live_health_does_not_invent_unsampled_ledger_and_pool_metrics() -> None:
+    snapshot = auditor.collect_from_fleet()
+    assert snapshot.subsystems["financials"].details == {"sampling": "not_configured"}
+    assert snapshot.subsystems["persistence"].details == {"pool": "not sampled"}
+    assert snapshot.subsystems["omnichannel"].details["sampling"] == "per_sender_only"
+
+
+def test_live_health_uses_actual_memory_and_disk_metrics(monkeypatch) -> None:
+    monkeypatch.setattr(auditor, "_linux_memory_used_pct", lambda: 90.0)
+    monkeypatch.setattr(auditor, "_root_disk_used_pct", lambda: 25.0)
+    snapshot = auditor.collect_from_fleet()
+    assert snapshot.subsystems["host"].status == "CRITICAL"
+    assert snapshot.subsystems["host"].details["ram_used_pct"] == 90.0
+    assert snapshot.subsystems["host"].details["disk_used_pct"] == 25.0

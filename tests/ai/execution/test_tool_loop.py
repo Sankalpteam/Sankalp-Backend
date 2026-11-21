@@ -147,13 +147,13 @@ async def test_dispatch_rejects_unknown_tools() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_tool_loop_is_a_no_op_without_gemini(monkeypatch) -> None:
-    monkeypatch.delenv("INDOONE_MODEL_BACKEND", raising=False)
+async def test_run_tool_loop_is_a_no_op_for_unsupported_backend(monkeypatch) -> None:
+    monkeypatch.setenv("INDOONE_MODEL_BACKEND", "unsupported")
     assert await tool_loop.run_tool_loop("u1", "c1", "hello") is None
 
 
 @pytest.mark.asyncio
-async def test_run_tool_loop_uses_auto_mode_and_the_users_declarations(monkeypatch) -> None:
+async def test_run_tool_loop_requires_verified_actions_and_discovers_tools(monkeypatch) -> None:
     monkeypatch.setenv("INDOONE_MODEL_BACKEND", "gemini")
     captured = {}
 
@@ -181,10 +181,12 @@ async def test_run_tool_loop_uses_auto_mode_and_the_users_declarations(monkeypat
     )
 
     out = await tool_loop.run_tool_loop("u1", "c1", "list my repositories", history=[])
-    assert out == "done"
-    assert captured["mode"] == "AUTO"
+    # The fake provider returned text but never executed the requested tool.
+    # Production must refuse to present that text as verified completion.
+    assert "couldn't verify" in out.lower()
+    assert captured["mode"] == "ANY"
     assert captured["return_none"] is True
-    assert captured["reuse_text"] is True
+    assert captured["reuse_text"] is False
     # The loop now offers the family the message is about, not the bare always-on set: the
     # message says "repositories", so GitHub is handed over instead of being discovered.
     from app.ai.execution.tool_families import families_for
