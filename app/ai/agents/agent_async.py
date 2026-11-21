@@ -67,8 +67,16 @@ async def _run_public_web_read(
         if not isinstance(parsed, dict) or set(parsed) != {"query"}:
             raise ValueError("unexpected web search arguments")
         query = parsed["query"]
-        if not isinstance(query, str) or not query.strip() or len(query) > 500:
-            raise ValueError("invalid public web query")
+        from app.web_research.tools import (
+            MAX_SEARCH_QUERY_LENGTH, _PRIVATE_QUERY_PATTERNS,
+        )
+        if (
+            not isinstance(query, str)
+            or not query.strip()
+            or len(query) > MAX_SEARCH_QUERY_LENGTH
+            or any(pattern.search(query) for pattern in _PRIVATE_QUERY_PATTERNS)
+        ):
+            raise ValueError("invalid or private public-web query")
         remaining = remaining_budget(deadline)
         if remaining <= 0:
             return deadline_failure(tool), 0
