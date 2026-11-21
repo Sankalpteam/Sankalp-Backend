@@ -38,7 +38,7 @@ class AgentToolCapability:
 
 
 def classify_registered_tool(
-    name: str, *, allow_approval_write: bool = False
+    name: str, *, allow_approval_write: bool = False, allow_web_research: bool = False
 ) -> AgentToolCapability:
     """Always fail closed for untrusted MCP names, undeclared executors or risk.
 
@@ -47,6 +47,16 @@ def classify_registered_tool(
     connector capability and token scope before making a provider request.
     """
     normalized = str(name or "").strip().lower()
+    if normalized == SEARCH_WEB_DECLARATION["name"]:
+        if allow_web_research:
+            return AgentToolCapability(
+                normalized, "web_research", "read", "read",
+                "trusted read-only search adapter; existing supervisor validates public queries",
+            )
+        return AgentToolCapability(
+            normalized, "web_research", "blocked", "read",
+            "LangGraph public web research opt-in is disabled",
+        )
     spec = get_tool_spec(normalized)
     if spec is None or normalized not in TOOLS:
         return AgentToolCapability(normalized, "local", "blocked", "unknown",
@@ -69,13 +79,18 @@ def classify_registered_tool(
 
 
 def admit_chat_plan(
-    tool_names: Sequence[str], *, allow_approval_write: bool = False
+    tool_names: Sequence[str], *,
+    allow_approval_write: bool = False,
+    allow_web_research: bool = False,
 ) -> bool:
     """An all-READ plan, or one isolated write to be PAUSED; never a mixed plan."""
     if not tool_names:
         return True
     routes = [
-        classify_registered_tool(name, allow_approval_write=allow_approval_write).route
+        classify_registered_tool(
+            name, allow_approval_write=allow_approval_write,
+            allow_web_research=allow_web_research,
+        ).route
         for name in tool_names
     ]
     return all(route == "read" for route in routes) or (
