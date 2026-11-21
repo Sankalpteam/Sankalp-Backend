@@ -64,7 +64,12 @@ def _explicit_zoho_inbox_read(message: str) -> bool:
         return False
     from app.plugins.email.email_tools import _EMAIL_READ_INTENT, _EMAIL_WRITE_INTENT
 
-    return bool(_EMAIL_READ_INTENT.search(message)) and not _EMAIL_WRITE_INTENT.search(message)
+    if _EMAIL_WRITE_INTENT.search(message) or not _EMAIL_READ_INTENT.search(message):
+        return False
+    # A request to read one named message must NOT silently list unrelated
+    # inbox headers. This adapter supports only explicit inbox listings.
+    list_verb = re.search(r"\b(list|show|check|latest|recent)\b|thorisu|ತೋರಿಸು", message, re.IGNORECASE)
+    return bool(list_verb) and bool(re.search(r"\b(inbox|mails?|emails?)\b|ಇನ್‌ಬಾಕ್ಸ್", message, re.IGNORECASE))
 
 
 async def _run_zoho_inbox_read(
