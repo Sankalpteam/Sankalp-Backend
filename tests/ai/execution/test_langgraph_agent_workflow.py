@@ -157,3 +157,33 @@ def test_public_web_search_requires_explicit_trusted_read_and_never_grants_mcp()
     assert untrusted["steps"] == ()
     assert len(untrusted["blocked_steps"]) == 1
     assert len(calls) == 1
+
+
+def test_zoho_read_requires_explicit_trust_and_does_not_authorize_mail_writes():
+    calls = []
+
+    async def read(tool, payload, deadline, user_id):
+        calls.append((tool, payload, user_id))
+        return ToolResult(tool, '{"emails":[]}', safe=True), 0
+
+    async def run(name, trusted):
+        return await run_graph_execution(
+            (AgentStep(1, name, '{"provider":"zoho_mail","limit":5}'),),
+            user_id="owner", approved_tools=frozenset(), approval_tokens=(),
+            deadline=monotonic() + 20, execute_with_retry=read,
+            trusted_zoho_read=trusted,
+        )
+
+    blocked = asyncio.run(run("list_recent_emails", False))
+    assert not blocked["steps"]
+    assert not calls
+
+    allowed = asyncio.run(run("list_recent_emails", True))
+    assert len(allowed["steps"]) == 1
+    assert allowed["results"][0].safe is True
+    assert calls == [("list_recent_emails", '{"provider":"zoho_mail","limit":5}', "owner")]
+
+    forbidden = asyncio.run(run("prepare_email_to_send", True))
+    assert not forbidden["steps"]
+    assert len(forbidden["blocked_steps"]) == 1
+    assert len(calls) == 1
