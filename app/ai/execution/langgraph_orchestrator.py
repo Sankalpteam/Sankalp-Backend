@@ -56,6 +56,7 @@ async def run_graph_execution(
     deadline: float,
     execute_with_retry: Callable[[str, str, float, str], Awaitable[tuple[ToolResult, int]]],
     trusted_web_read: bool = False,
+    trusted_zoho_read: bool = False,
 ) -> GraphExecution:
     """Execute through LangGraph StateGraph; no implicit retries or writable checkpoint.
 
@@ -83,7 +84,8 @@ async def run_graph_execution(
         # adapter. It runs through the existing search supervisor, never writes,
         # and cannot authorize any other unregistered or MCP-provided name.
         public_web_read = trusted_web_read and step.tool == "search_web"
-        decision = None if public_web_read else decide_tool(
+        mailbox_read = trusted_zoho_read and step.tool == "list_recent_emails"
+        decision = None if (public_web_read or mailbox_read) else decide_tool(
             step.tool, approved_tools, approval_tokens, user_id=user_id
         )
         if decision is not None and not decision.allowed:
