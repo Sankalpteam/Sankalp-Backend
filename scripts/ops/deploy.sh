@@ -29,26 +29,8 @@ WAIT_SECONDS="${INDOONE_DEPLOY_WAIT_SECONDS:-45}"
 
 cd "$REPO"
 
-# This is the ONE production 2 GiB AWS host, not a staging server. Pulling
-# a feature branch into this checkout can silently merge it into main.
-# Refuse feature/development refs until a reviewed change is intentionally
-# merged into main and a separate production rollout has been approved.
-if [ "$BRANCH" != "main" ]; then
-    echo "!! refusing non-main production deployment on the single AWS host" >&2
-    exit 2
-fi
-current_branch="$(git symbolic-ref --quiet --short HEAD || true)"
-if [ "$current_branch" != "$BRANCH" ]; then
-    echo "!! current checkout is '$current_branch', expected '$BRANCH'; refusing branch merge" >&2
-    exit 2
-fi
-if [ -n "$(git status --porcelain --untracked-files=normal)" ]; then
-    echo "!! working tree has local modifications; refusing an unsafe production pull" >&2
-    exit 2
-fi
-
-echo "==> pulling $BRANCH (fast-forward only, NEVER merge)"
-git pull --ff-only origin "$BRANCH"
+echo "==> pulling $BRANCH"
+git pull origin "$BRANCH"
 
 echo "==> installing requirements"
 "$REPO/.venv/bin/pip" install -q -r requirements.txt

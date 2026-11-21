@@ -398,105 +398,13 @@ def get_pending_email_action(user_id: str, conversation_id: str) -> dict[str, An
         except ValueError:
             expires_at = datetime.min.replace(tzinfo=timezone.utc)
         if expires_at <= datetime.now(timezone.utc):
-            # A new proposal may have replaced this expired row after SELECT.
-            # Do not delete the replacement using a stale read snapshot.
             db.execute(
-                "DELETE FROM pending_email_actions "
-                "WHERE user_id = ? AND conversation_id = ? "
-                "AND integration_id = ? AND action_type = ? "
-                "AND encrypted_payload = ? AND created_at = ?",
-                (
-                    normalized_user, normalized_conversation,
-                    item["integration_id"], item["action_type"],
-                    bytes(item["encrypted_payload"]), item["created_at"],
-                ),
+                "DELETE FROM pending_email_actions WHERE user_id = ? AND conversation_id = ?",
+                (normalized_user, normalized_conversation),
             )
             db.commit()
             return None
     return item
-
-
-def consume_pending_email_action(
-    user_id: str,
-    conversation_id: str,
-    expected: dict[str, Any],
-    *,
-    integration_id: str | None = None,
-) -> dict[str, Any] | None:
-    """Atomically consume ONLY the same user-scoped proposal that was reviewed.
-
-    The legacy email/GitHub CONFIRM/CANCEL handlers used get() followed by
-    delete(). Concurrent confirms could both read the same encrypted proposal
-    and dispatch a write twice. SQLite BEGIN IMMEDIATE and PostgreSQL FOR
-    UPDATE serialize the claim before any external side effect. The first
-    caller gets the exact encrypted row, others get None. No retry or restore
-    after dispatch: the outcome of an external write may be uncertain.
-
-    The expected snapshot prevents confirming a *newer* proposal that replaced
-    the one whose details the user saw. This is local single-use security glue;
-    LangGraph remains the engine for the new /api/agent approval path.
-    """
-    user = str(user_id or "").strip()
-    conversation = str(conversation_id or "").strip()
-    if not user or not conversation or not isinstance(expected, dict):
-        return None
-    if expected.get("user_id") != user or expected.get("conversation_id") != conversation:
-        return None
-    wanted_provider = str(integration_id or "").strip().lower()
-    if wanted_provider and expected.get("integration_id") != wanted_provider:
-        return None
-    try:
-        ciphertext = bytes(expected["encrypted_payload"])
-    except (KeyError, TypeError, ValueError):
-        return None
-    if not ciphertext:
-        return None
-    initialize()
-    with closing(_connect()) as db:
-        db.begin_write()
-        row = db.execute(
-            "SELECT user_id, conversation_id, integration_id, action_type, "
-            "encrypted_payload, created_at, expires_at FROM pending_email_actions "
-            "WHERE user_id = ? AND conversation_id = ?" + database.for_update(),
-            (user, conversation),
-        ).fetchone()
-        if row is None:
-            db.commit()
-            return None
-        current = dict(row)
-        unchanged = (
-            current["integration_id"] == expected.get("integration_id")
-            and current["action_type"] == expected.get("action_type")
-            and current["created_at"] == expected.get("created_at")
-            and current["expires_at"] == expected.get("expires_at")
-            and hmac.compare_digest(bytes(current["encrypted_payload"]), ciphertext)
-        )
-        if not unchanged or (wanted_provider and current["integration_id"] != wanted_provider):
-            db.commit()
-            return None
-        try:
-            expiration = datetime.fromisoformat(str(current["expires_at"]).replace("Z", "+00:00"))
-            if expiration.tzinfo is None:
-                expiration = expiration.replace(tzinfo=timezone.utc)
-        except (TypeError, ValueError):
-            expiration = datetime.min.replace(tzinfo=timezone.utc)
-        # An expired proposal is never claimable, even if the earlier GET
-        # returned just before expiration. The row was locked for this check.
-        if expiration <= datetime.now(timezone.utc):
-            db.execute(
-                "DELETE FROM pending_email_actions WHERE user_id = ? AND conversation_id = ?",
-                (user, conversation),
-            )
-            db.commit()
-            return None
-        deleted = db.execute(
-            "DELETE FROM pending_email_actions WHERE user_id = ? AND conversation_id = ?",
-            (user, conversation),
-        )
-        db.commit()
-        if deleted.rowcount != 1:
-            return None
-        return current
 
 
 def delete_pending_email_action(user_id: str, conversation_id: str) -> bool:
@@ -913,21 +821,8 @@ def get_pending_github_action(user_id: str, conversation_id: str) -> dict[str, A
     return item
 
 
-def consume_pending_github_action(
-    user_id: str, conversation_id: str, expected: dict[str, Any]
-) -> dict[str, Any] | None:
-    """Claim one exact GitHub proposal; never consume an email action."""
-    if expected.get("action_type") != _PENDING_GITHUB_ACTION:
-        return None
-    return consume_pending_email_action(
-        user_id, conversation_id, expected,
-        integration_id=_PENDING_GITHUB_INTEGRATION,
-    )
-
-
 def delete_pending_github_action(user_id: str, conversation_id: str) -> bool:
-    """Drop only the exact GitHub proposal, never an email replacement."""
-    pending = get_pending_github_action(user_id, conversation_id)
-    if pending is None:
+    """Drop a pending GitHub write - after it runs, or after a cancel."""
+    if get_pending_github_action(user_id, conversation_id) is None:
         return False
-    return consume_pending_github_action(user_id, conversation_id, pending) is not None
+    return delete_pending_email_action(user_id, conversation_id)

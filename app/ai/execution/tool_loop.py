@@ -18,7 +18,6 @@ import os
 from typing import Any, Iterable
 
 from app.ai.execution.approval import decide_tool
-from app.ai.gateway.provider_policy import is_primary_backend_enabled
 from app.ai.gateway.ai_rules import (
     APPROVAL_REQUIRED,
     SEARCH_FAILED,
@@ -122,7 +121,11 @@ def email_read_tool_declarations() -> list[dict[str, Any]]:
     ]
 
 def _gemini_backend_enabled() -> bool:
-    return is_primary_backend_enabled()
+    return os.getenv("INDOONE_MODEL_BACKEND", "").strip().casefold() == "gemini"
+
+
+def _azure_backend_enabled() -> bool:
+    return os.getenv("INDOONE_MODEL_BACKEND", "").strip().casefold() == "azure"
 
 
 # The tools the model is given without asking. Everything else in the catalogue is
@@ -282,30 +285,6 @@ def model_tool_declarations(
 
     declarations = [tool_declaration(spec) for spec in TOOL_SPECS if wanted(spec)]
 
-    # Composio is an external hosted tool like email, NOT a registry entry for
-    # the payload-only local run_tool executor. It requires authenticated user
-    # context, so only the secure dispatch_tool branch may call its SDK.
-    if str(user_id or "").strip():
-        from app.ai.execution.composio_bridge import enabled as composio_enabled
-        if composio_enabled() and (
-            full or "email" in set(families)
-            or "composio_gmail_fetch_emails" in set(discovered)
-        ):
-            declarations.append({
-                "name": "composio_gmail_fetch_emails",
-                "description": (
-                    "Read emails from the authenticated user's separately "
-                    "connected Composio Gmail account; never send or delete."
-                ),
-                "parameters": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "query": {"type": "STRING", "description": "Optional Gmail search filter."},
-                        "max_results": {"type": "INTEGER", "description": "Maximum emails, 1-20."},
-                    },
-                },
-            })
-
     if full:
         declarations += [dict(item) for item in EMAIL_TOOL_DECLARATIONS]
     else:
@@ -368,12 +347,6 @@ async def dispatch_tool(
     approval_tokens: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     """Run one model-chosen tool and return a JSON-able result for the model."""
-    if name == "composio_gmail_fetch_emails":
-        from app.ai.execution.composio_bridge import gmail_read
-
-        # The authenticated backend user, never an argument sent by the model.
-        return await gmail_read(user_id, arguments)
-
     if name in _EMAIL_TOOL_NAMES:
         from app.plugins.email.email_tools import execute_email_tool
 
@@ -511,22 +484,21 @@ async def dispatch_tool(
                 "message": APPROVAL_REQUIRED,
             }
 
-    # Model arguments are always untrusted. These fields belong exclusively to
-    # the authenticated backend; setdefault would preserve model-supplied values.
-    _backend_only = frozenset({
-        "user_id", "conversation_id", "original_message",
-        "approval_token", "client_turn_id",
-    })
-    payload_arguments = {key: value for key, value in arguments.items() if key not in _backend_only}
+    payload_arguments = dict(arguments)
+    # The authenticated identity is injected by the backend, never by the model.
     if user_id.strip():
-        payload_arguments["user_id"] = user_id
-        payload_arguments["conversation_id"] = conversation_id
+        payload_arguments.setdefault("user_id", user_id)
+        # A GitHub write that needs confirmation is stored against the
+        # conversation, so the confirmation can find it again.
+        payload_arguments.setdefault("conversation_id", conversation_id)
+    # The user's own message decides whether an explicit write request still needs a
+    # confirmation. It is the user's wording, never the model's.
     if original_message.strip():
-        payload_arguments["original_message"] = original_message
+        payload_arguments.setdefault("original_message", original_message)
     if name in _TOKEN_IN_PAYLOAD:
         token = _first_token(approval_tokens)
         if token:
-            payload_arguments["approval_token"] = token
+            payload_arguments.setdefault("approval_token", token)
 
     payload = _core_payload(spec, payload_arguments)
     result = await run_tool_async(name, payload, user_id=user_id)
@@ -541,14 +513,6 @@ async def dispatch_tool(
     if isinstance(data, dict) and data.get("code") in {"APPROVAL_REQUIRED", "APPROVAL_UNAVAILABLE"}:
         return data
     return {"ok": True, "result": data}
-
-
-def _successful_tool_result(encoded: str) -> bool:
-    try:
-        result = json.loads(encoded)
-    except (TypeError, ValueError):
-        return False
-    return isinstance(result, dict) and result.get("ok") is True
 
 
 async def _answer_from_tool_results(
@@ -567,14 +531,6 @@ async def _answer_from_tool_results(
     from app.ai.gateway.groq_service import generate_groq_reply, groq_available
 
     if not groq_available():
-        return None
-
-    # A fallback must never turn an empty or failed tool run into a fake answer.
-    executed = tuple(
-        (name, output) for name, output in executed
-        if _successful_tool_result(output)
-    )
-    if not executed:
         return None
 
     if executed:
@@ -616,7 +572,7 @@ async def run_tool_loop(
     Returns the model's grounded answer when it used a tool, or ``None`` when it
     chose no tool (so the caller can fall back to the plain answer path).
     """
-    if not _gemini_backend_enabled() or not message.strip():
+    if not (_gemini_backend_enabled() or _azure_backend_enabled()) or not message.strip():
         return None
 
     from app.ai.gateway.gemini_service import (
@@ -626,15 +582,9 @@ async def run_tool_loop(
 
     tokens = tuple(approval_tokens or ())
     write_done = {"value": False}
-    # Once an external write has been attempted, the same invocation cannot be
-    # re-executed during this turn, even if Gemini/Groq repeats the tool call.
-    # This is request-scoped protection, not cross-request durable idempotency.
-    attempted_writes: set[tuple[str, str]] = set()
     # Tools the model asked for with find_tools, so later rounds can call them.
     discovered: set[str] = set()
     families = _families_for(message)
-    from app.ai.execution.tool_intent import requires_tool_result
-    must_run_tool = requires_tool_result(message)
 
     # When the message matches no family, we look the tools up for the model instead of asking
     # it to. Before this the model had find_tools in hand and often did not use it, so a
@@ -681,33 +631,11 @@ async def run_tool_loop(
                 )
             return result
         if name in _EMAIL_WRITE_TOOLS and write_done["value"]:
-            denied = {
+            return {
                 "ok": False,
                 "code": "MULTIPLE_WRITES_BLOCKED",
                 "message": "One email-changing operation is already pending for this message. Ask the user before starting another.",
             }
-            executed.append((name, json.dumps(denied, ensure_ascii=False)))
-            return denied
-        spec = get_tool_spec(name)
-        if spec is not None and spec.risk == "write":
-            fingerprint = (
-                name,
-                json.dumps(arguments, sort_keys=True, separators=(",", ":"), default=str),
-            )
-            if fingerprint in attempted_writes:
-                denied = {
-                    "ok": False,
-                    "code": "DUPLICATE_WRITE_BLOCKED",
-                    "message": "This write was already attempted during this request. Verify its outcome before retrying.",
-                }
-                # The model's second call was refused. Record that refusal so
-                # a final "both succeeded" response cannot pass grounding checks.
-                executed.append((name, json.dumps(denied, ensure_ascii=False)))
-                return denied
-            # Record *before* dispatch: a network timeout does not mean the
-            # remote provider failed to apply a write.
-            attempted_writes.add(fingerprint)
-
         result = await dispatch_tool(
             user_id,
             conversation_id,
@@ -734,35 +662,17 @@ async def run_tool_loop(
             _UNIFIED_SYSTEM_INSTRUCTION
             + ("\n\n" + extra_system_instruction.strip() if extra_system_instruction.strip() else "")
         ),
-        tool_mode="ANY" if must_run_tool else "AUTO",
+        tool_mode="AUTO",
         return_none_when_no_tool=True,
-        reuse_first_text_when_no_tool=not must_run_tool,
+        reuse_first_text_when_no_tool=True,
         # The round cap, passed explicitly rather than left to each provider's default.
         # Both providers already clamp it (1..6); naming it here is what makes it one
         # policy for both instead of two defaults that happen to agree today.
         max_tool_rounds=_max_tool_rounds(),
     )
     try:
-        answer = await generate_gemini_function_call_reply(message, **_shared)
-        if executed and not all(_successful_tool_result(output) for _, output in executed):
-            return "The tool operation failed or was incomplete. No unverified action is reported as complete."
-        if must_run_tool and not executed:
-            return "I couldn't verify the requested tool operation. No action is being reported as complete."
-        return answer
+        return await generate_gemini_function_call_reply(message, **_shared)
     except ModelBusyError:
-        # If Gemini fails before executing a tool, Groq must receive the same
-        # declarations and secure dispatcher, not a tool-free text prompt.
-        if not executed:
-            from app.ai.gateway.groq_service import groq_available
-            from app.ai.gateway.groq_tool_service import generate_groq_function_call_reply
-            if not groq_available():
-                raise
-            answer = await generate_groq_function_call_reply(message, **_shared)
-            if must_run_tool and not any(_successful_tool_result(output) for _, output in executed):
-                return "I couldn't verify the requested tool operation. No action is being reported as complete."
-            return answer
-        if any(not _successful_tool_result(output) for _, output in executed):
-            return "The tool operation failed or was incomplete. No unverified action is reported as complete."
         # Gemini is at its limit. The tools may already have run, so the answer is written from
         # what they returned rather than from nothing: dropping the results here is what made a
         # fallback answer look like the assistant had never looked anything up.

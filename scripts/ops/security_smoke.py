@@ -35,10 +35,6 @@ def run_smoke() -> None:
         os.environ.update(
             {
                 "INDOONE_ENV": "production",
-                # This checks provider configuration, never calls Gemini or Groq.
-                # Use a non-working synthetic key so readiness stays fail-closed in production.
-                "INDOONE_MODEL_BACKEND": "gemini",
-                "GEMINI_API_KEY": "synthetic-smoke-test-key-not-for-live-use",
                 "INDOONE_AUTH_REQUIRED": "true",
                 "INDOONE_AUTH_SECRET": _AUTH_SECRET,
                 "INDOONE_APPROVAL_SECRET": _APPROVAL_SECRET,

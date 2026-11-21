@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from app.ai.execution.coding import MAX_CODE_LENGTH, analyze_code, code_analysis_tool, explain_code, suggest_fixes, transform_code
+from app.ai.agents.coding import MAX_CODE_LENGTH, analyze_code, code_analysis_tool, explain_code, suggest_fixes, transform_code
 from app.ai.execution.tools import run_tool
 
 

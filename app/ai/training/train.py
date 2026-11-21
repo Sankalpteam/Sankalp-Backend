@@ -1,0 +1,704 @@
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import random
+import time
+from pathlib import Path
+
+import torch
+from torch import nn
+
+from app.ai.local.model import IndooneTransformer
+from app.ai.local.tokenizer import BPETokenizer
+from app.ai.training.training_data import TrainingExample, format_instruction_prompt, load_examples, write_corpus
+
+
+# V1 is the active Sankalp model architecture used for production inference.
+DEFAULT_MODEL_CONFIG = {
+    "block_size": 512,
+    "n_embd": 384,
+    "n_head": 8,
+    "n_layer": 10,
+    "dropout": 0.0,
+}
+DEFAULT_VOCAB_SIZE = 8192
+DEFAULT_MIN_FREQUENCY = 2
+
+DEFAULT_TRAINING_STEPS = 8000
+DEFAULT_BATCH_SIZE = 16
+DEFAULT_CHECKPOINT_INTERVAL = 500
+DEFAULT_LEARNING_RATE = 1e-4
+DEFAULT_INSTRUCTION_MIX_RATIO = 0.8
+DEFAULT_WEIGHT_DECAY = 0.01
+DEFAULT_SEED = 42
+CURATED_INSTRUCTION_WEIGHT = 0.95
+GENERATED_INSTRUCTION_WEIGHT = 0.05
+
+
+def _file_fingerprint(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _merge_instruction_sets(paths: list[Path]) -> tuple[list[TrainingExample], list[str]]:
+    """Load multiple instruction sets and remove exact instruction/response duplicates."""
+    merged: list[TrainingExample] = []
+    seen: set[tuple[str, str]] = set()
+    fingerprints: list[str] = []
+    for path in paths:
+        if not path.exists():
+            continue
+        fingerprints.append(_file_fingerprint(path))
+        for example in load_examples(path):
+            key = (example.instruction.casefold(), example.response.casefold())
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(example)
+    return merged, fingerprints
+
+
+def _merge_instruction_sets_weighted(
+    paths: list[Path],
+) -> tuple[list[TrainingExample], list[str], list[float], dict[str, dict[str, int | float]]]:
+    """Merge instruction pools with explicit sampling priority.
+
+    Curated behavior examples are deliberately oversampled relative to synthetic
+    augmentation so the evaluation-driving examples are not drowned out by a
+    much larger generated pool.
+    """
+    pool_targets = {
+        "generated_multilingual_examples.jsonl": GENERATED_INSTRUCTION_WEIGHT,
+    }
+    default_target = CURATED_INSTRUCTION_WEIGHT
+
+    merged: list[TrainingExample] = []
+    sampling_weights: list[float] = []
+    seen: set[tuple[str, str]] = set()
+    fingerprints: list[str] = []
+    policy: dict[str, dict[str, int | float]] = {}
+
+    for path in paths:
+        if not path.exists():
+            continue
+        fingerprints.append(_file_fingerprint(path))
+        pool: list[TrainingExample] = []
+        for example in load_examples(path):
+            key = (example.instruction.casefold(), example.response.casefold())
+            if key in seen:
+                continue
+            seen.add(key)
+            pool.append(example)
+
+        if not pool:
+            continue
+
+        target = next(
+            (weight for filename, weight in pool_targets.items() if filename in path.name),
+            default_target,
+        )
+        per_example_weight = target / len(pool)
+        start = len(merged)
+        merged.extend(pool)
+        sampling_weights.extend([per_example_weight] * len(pool))
+        policy[path.name] = {
+            "examples": len(pool),
+            "target_probability": target,
+            "start_index": start,
+        }
+
+    total_weight = sum(sampling_weights)
+    if total_weight <= 0:
+        raise ValueError("instruction dataset is empty")
+    sampling_weights = [weight / total_weight for weight in sampling_weights]
+    return merged, fingerprints, sampling_weights, policy
+
+
+def batchify(
+    data: torch.Tensor,
+    block_size: int,
+    batch_size: int,
+    device: str,
+    generator: torch.Generator | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    if len(data) <= block_size + 1:
+        raise ValueError("dataset is too small for the configured block size")
+    starts = torch.randint(
+        0,
+        len(data) - block_size - 1,
+        (batch_size,),
+        generator=generator,
+    )
+    x = torch.stack([data[i : i + block_size] for i in starts]).to(device)
+    y = torch.stack([data[i + 1 : i + block_size + 1] for i in starts]).to(device)
+    return x, y
+
+
+def _prepare_instruction_examples(
+    examples: list[TrainingExample],
+    tokenizer: BPETokenizer,
+    block_size: int,
+) -> list[tuple[list[int], list[int]]]:
+    """Pre-tokenize instruction sequences so training does not repeat CPU tokenization."""
+
+    bos_id = tokenizer.stoi["<bos>"]
+    eos_id = tokenizer.stoi["<eos>"]
+    prepared: list[tuple[list[int], list[int]]] = []
+    for example in examples:
+        prefix = format_instruction_prompt(example.instruction)
+        prefix_ids = tokenizer.encode(prefix, add_special_tokens=False)
+        response_ids = tokenizer.encode(example.response, add_special_tokens=False)
+        max_response_tokens = block_size - len(prefix_ids) - 1
+        if max_response_tokens < 1:
+            raise ValueError("instruction example exceeds the configured block size")
+        if len(response_ids) >= max_response_tokens:
+            response_ids = response_ids[: max_response_tokens - 1]
+
+        sequence = [bos_id] + prefix_ids + response_ids + [eos_id]
+        inputs = sequence[:-1]
+        targets = sequence[1:]
+        targets[: len(prefix_ids)] = [-100] * len(prefix_ids)
+        prepared.append((inputs, targets))
+    return prepared
+
+
+def _instruction_batchify(
+    examples: list[TrainingExample],
+    tokenizer: BPETokenizer,
+    block_size: int,
+    batch_size: int,
+    device: str,
+    generator: torch.Generator,
+    sampling_weights: list[float] | None = None,
+    example_indices: list[int] | None = None,
+    prepared_examples: list[tuple[list[int], list[int]]] | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Build supervised instruction batches with loss only on response tokens."""
+
+    if not examples:
+        raise ValueError("instruction examples cannot be empty")
+    if batch_size <= 0:
+        raise ValueError("batch_size must be greater than zero")
+    if block_size < 8:
+        raise ValueError("block_size must be large enough for instruction formatting")
+
+    bos_id = tokenizer.stoi["<bos>"]
+    eos_id = tokenizer.stoi["<eos>"]
+    pad_id = tokenizer.stoi["<pad>"]
+    if prepared_examples is not None and len(prepared_examples) != len(examples):
+        raise ValueError("prepared_examples must match the instruction example count")
+
+    batch_inputs: list[list[int]] = []
+    batch_targets: list[list[int]] = []
+    max_length = 0
+
+    if example_indices is not None:
+        if len(example_indices) != batch_size:
+            raise ValueError("example_indices must contain exactly batch_size indices")
+        if any(index < 0 or index >= len(examples) for index in example_indices):
+            raise ValueError("example_indices contains an out-of-range index")
+        sample_indices = torch.tensor(example_indices, dtype=torch.long)
+    elif sampling_weights is None:
+        sample_indices = torch.randint(
+            0,
+            len(examples),
+            (batch_size,),
+            generator=generator,
+        )
+    else:
+        if len(sampling_weights) != len(examples):
+            raise ValueError("sampling_weights must match the instruction example count")
+        weights = torch.tensor(sampling_weights, dtype=torch.float32)
+        if torch.any(weights < 0) or float(weights.sum()) <= 0:
+            raise ValueError("instruction sampling weights must be non-negative and non-zero")
+        sample_indices = torch.multinomial(
+            weights,
+            num_samples=batch_size,
+            replacement=True,
+            generator=generator,
+        )
+    for index in sample_indices.tolist():
+        if prepared_examples is not None:
+            inputs, targets = prepared_examples[index]
+        else:
+            example = examples[index]
+            prefix = format_instruction_prompt(example.instruction)
+            prefix_ids = tokenizer.encode(prefix, add_special_tokens=False)
+            response_ids = tokenizer.encode(example.response, add_special_tokens=False)
+
+            # Leave room for BOS and EOS while keeping the input length <= block_size.
+            max_response_tokens = block_size - len(prefix_ids) - 1
+            if max_response_tokens < 1:
+                raise ValueError("instruction example exceeds the configured block size")
+            if len(response_ids) >= max_response_tokens:
+                response_ids = response_ids[: max_response_tokens - 1]
+
+            sequence = [bos_id] + prefix_ids + response_ids + [eos_id]
+            inputs = sequence[:-1]
+            targets = sequence[1:]
+
+            # Only response tokens (plus EOS) should contribute to the SFT loss.
+            targets[: len(prefix_ids)] = [-100] * len(prefix_ids)
+
+        batch_inputs.append(inputs)
+        batch_targets.append(targets)
+        max_length = max(max_length, len(inputs))
+
+    input_batch = torch.full(
+        (batch_size, max_length),
+        pad_id,
+        dtype=torch.long,
+    )
+    target_batch = torch.full(
+        (batch_size, max_length),
+        -100,
+        dtype=torch.long,
+    )
+    for row, (inputs, targets) in enumerate(zip(batch_inputs, batch_targets)):
+        length = len(inputs)
+        input_batch[row, :length] = torch.tensor(inputs, dtype=torch.long)
+        target_batch[row, :length] = torch.tensor(targets, dtype=torch.long)
+
+    return input_batch.to(device), target_batch.to(device)
+
+
+def evaluate(
+    model: IndooneTransformer,
+    data: torch.Tensor,
+    block_size: int,
+    batch_size: int,
+    batches: int,
+    device: str,
+) -> float | None:
+    if batches <= 0:
+        raise ValueError("batches must be greater than zero")
+    if len(data) <= block_size + 1:
+        return None
+    model.eval()
+    losses: list[float] = []
+    generator = torch.Generator()
+    generator.manual_seed(0)
+    with torch.inference_mode():
+        for _ in range(batches):
+            x, y = batchify(data, block_size, batch_size, device, generator)
+            _, loss = model(x, y)
+            assert loss is not None
+            losses.append(float(loss.cpu()))
+    model.train()
+    return sum(losses) / len(losses)
+
+
+
+def evaluate_instruction_loss(
+    model: IndooneTransformer,
+    examples: list[TrainingExample],
+    tokenizer: BPETokenizer,
+    block_size: int,
+    batch_size: int,
+    device: str,
+) -> float | None:
+    """Evaluate response-only loss on a deterministic held-out instruction set."""
+    if not examples:
+        return None
+    model.eval()
+    losses: list[float] = []
+    with torch.inference_mode():
+        for offset in range(0, len(examples), batch_size):
+            batch_indices = list(range(offset, min(offset + batch_size, len(examples))))
+            current_batch_size = len(batch_indices)
+            x, y = _instruction_batchify(
+                examples,
+                tokenizer,
+                block_size,
+                current_batch_size,
+                device,
+                torch.Generator().manual_seed(0),
+                example_indices=batch_indices,
+            )
+            _, loss = model(x, y)
+            assert loss is not None
+            losses.append(float(loss.cpu()))
+    model.train()
+    return sum(losses) / len(losses)
+
+
+def _tokenizer_source_fingerprint(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _load_or_train_tokenizer(
+    tokenizer_text: str,
+    output_dir: Path,
+) -> BPETokenizer:
+    """Reuse a verified tokenizer cache to avoid repeating expensive CPU BPE training."""
+
+    tokenizer_path = output_dir / "tokenizer.json"
+    fingerprint_path = output_dir / "tokenizer_source.sha256"
+    source_fingerprint = _tokenizer_source_fingerprint(tokenizer_text)
+
+    if tokenizer_path.is_file() and fingerprint_path.is_file():
+        cached_fingerprint = fingerprint_path.read_text(encoding="utf-8").strip()
+        if cached_fingerprint == source_fingerprint:
+            print("tokenizer cache: valid; reusing existing tokenizer", flush=True)
+            return BPETokenizer.load(tokenizer_path)
+
+    # Support resuming an interrupted run from the tokenizer already written by
+    # the previous training process. A completed run has metadata/checkpoints,
+    # so this fallback only applies to the interrupted bootstrap case.
+    if (
+        tokenizer_path.is_file()
+        and not fingerprint_path.is_file()
+        and not (output_dir / "checkpoint.pt").is_file()
+        and not (output_dir / "metadata.json").is_file()
+    ):
+        print("tokenizer cache: interrupted-run bootstrap; reusing existing tokenizer", flush=True)
+        return BPETokenizer.load(tokenizer_path)
+
+    print("tokenizer cache: training BPE tokenizer (first run only)", flush=True)
+    started = time.monotonic()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    tokenizer = BPETokenizer.train(
+        tokenizer_text,
+        vocab_size=DEFAULT_VOCAB_SIZE,
+        min_frequency=DEFAULT_MIN_FREQUENCY,
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    tokenizer.save(tokenizer_path)
+    fingerprint_path.write_text(source_fingerprint + "\n", encoding="utf-8")
+    print(f"tokenizer cache: trained in {time.monotonic() - started:.1f}s", flush=True)
+    return tokenizer
+
+
+def _snapshot_state(model: IndooneTransformer) -> dict[str, torch.Tensor]:
+    """Clone model weights so a later optimizer step cannot mutate the snapshot."""
+    return {
+        name: tensor.detach().cpu().clone()
+        for name, tensor in model.state_dict().items()
+    }
+
+
+def train(
+    corpus_path: Path,
+    output_dir: Path,
+    steps: int,
+    seed: int,
+    validation_path: Path | None = None,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    checkpoint_interval: int = DEFAULT_CHECKPOINT_INTERVAL,
+    learning_rate: float = DEFAULT_LEARNING_RATE,
+    instruction_path: Path | None = None,
+    multilingual_instruction_path: Path | None = None,
+    capability_instruction_path: Path | None = None,
+    instruction_validation_path: Path | None = None,
+    instruction_mix_ratio: float = DEFAULT_INSTRUCTION_MIX_RATIO,
+) -> float:
+    if steps <= 0:
+        raise ValueError("steps must be greater than zero")
+    if batch_size <= 0:
+        raise ValueError("batch_size must be greater than zero")
+    if checkpoint_interval <= 0:
+        raise ValueError("checkpoint_interval must be greater than zero")
+    if learning_rate <= 0:
+        raise ValueError("learning_rate must be greater than zero")
+    if not 0.0 <= instruction_mix_ratio <= 1.0:
+        raise ValueError("instruction_mix_ratio must be between 0 and 1")
+
+    random.seed(seed)
+    torch.manual_seed(seed)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if device == "cuda":
+        torch.set_float32_matmul_precision("high")
+        print(f"CUDA training enabled on {torch.cuda.get_device_name(0)}", flush=True)
+
+    train_text = corpus_path.read_text(encoding="utf-8")
+    instruction_paths = [
+        path
+        for path in (instruction_path, multilingual_instruction_path, capability_instruction_path)
+        if path is not None
+    ]
+    instruction_enabled = any(path.exists() for path in instruction_paths)
+    instruction_fingerprints: list[str] = []
+    instruction_example_count = 0
+    instruction_examples: list[TrainingExample] = []
+    instruction_sampling_weights: list[float] | None = None
+    instruction_sampling_policy: dict[str, dict[str, int | float]] = {}
+    if instruction_enabled:
+        (
+            instruction_examples,
+            instruction_fingerprints,
+            instruction_sampling_weights,
+            instruction_sampling_policy,
+        ) = _merge_instruction_sets_weighted(instruction_paths)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        instruction_corpus = output_dir / "instruction_corpus.txt"
+        write_corpus(instruction_examples, instruction_corpus)
+        instruction_example_count = len(instruction_examples)
+    if len(train_text) < 32:
+        raise ValueError("training corpus is too small; add more text")
+
+    tokenizer_text = train_text
+    if instruction_examples:
+        tokenizer_text = (
+            train_text.rstrip()
+            + "\n\n"
+            + (output_dir / "instruction_corpus.txt").read_text(encoding="utf-8")
+        )
+    tokenizer = _load_or_train_tokenizer(tokenizer_text, output_dir)
+    train_encoded = torch.tensor(
+        tokenizer.encode(train_text, add_special_tokens=True),
+        dtype=torch.long,
+    )
+    instruction_token_count = 0
+    if instruction_examples:
+        instruction_text = (output_dir / "instruction_corpus.txt").read_text(encoding="utf-8")
+        instruction_token_count = len(tokenizer.encode(instruction_text, add_special_tokens=False))
+        if instruction_token_count <= 3:
+            raise ValueError(
+                "instruction corpus is too small after tokenization; add more instruction examples"
+            )
+    if len(train_encoded) < 4:
+        raise ValueError("training corpus is too small after tokenization")
+
+    block_size = min(DEFAULT_MODEL_CONFIG["block_size"], max(2, len(train_encoded) // 2))
+    if len(train_encoded) <= block_size + 1:
+        raise ValueError("training corpus is too small for the selected block size")
+
+    prepared_instruction_examples = (
+        _prepare_instruction_examples(instruction_examples, tokenizer, block_size)
+        if instruction_examples
+        else None
+    )
+
+    validation_encoded: torch.Tensor | None = None
+    validation_fingerprint = None
+    instruction_validation_examples: list[TrainingExample] = []
+    instruction_validation_fingerprint = None
+    if instruction_validation_path is not None and instruction_validation_path.exists():
+        instruction_validation_examples = load_examples(instruction_validation_path)
+        instruction_validation_fingerprint = _file_fingerprint(instruction_validation_path)
+    if validation_path is not None and validation_path.exists():
+        validation_text = validation_path.read_text(encoding="utf-8")
+        if validation_text.strip():
+            validation_encoded = torch.tensor(
+                tokenizer.encode(validation_text, add_special_tokens=True),
+                dtype=torch.long,
+            )
+            validation_fingerprint = _file_fingerprint(validation_path)
+
+    config = {**DEFAULT_MODEL_CONFIG, "block_size": block_size}
+    model = IndooneTransformer(vocab_size=tokenizer.vocab_size, **config).to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=DEFAULT_WEIGHT_DECAY)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    tokenizer.save(output_dir / "tokenizer.json")
+
+    train_generator = torch.Generator()
+    train_generator.manual_seed(seed)
+    instruction_generator = torch.Generator()
+    instruction_generator.manual_seed(seed + 1)
+    history: list[dict[str, float | int | None]] = []
+    last_loss = float("inf")
+    best_validation_loss = float("inf")
+    best_validation_kind: str | None = None
+    best_validation_step: int | None = None
+    best_model_state: dict[str, torch.Tensor] | None = None
+
+    model.train()
+    training_started = time.monotonic()
+    for step in range(1, steps + 1):
+        use_instruction_batch = (
+            bool(instruction_examples)
+            and torch.rand((), generator=train_generator).item() < instruction_mix_ratio
+        )
+        if use_instruction_batch:
+            x, y = _instruction_batchify(
+                instruction_examples,
+                tokenizer,
+                block_size,
+                batch_size,
+                device,
+                instruction_generator,
+                instruction_sampling_weights,
+                prepared_examples=prepared_instruction_examples,
+            )
+        else:
+            x, y = batchify(train_encoded, block_size, batch_size, device, train_generator)
+        _, loss = model(x, y)
+        assert loss is not None
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step()
+        last_loss = float(loss.detach().cpu())
+        if step == 1 or step % 100 == 0 or step == steps:
+            elapsed = time.monotonic() - training_started
+            steps_per_second = step / elapsed if elapsed > 0 else 0.0
+            print(
+                f"training progress: step {step}/{steps}; loss={last_loss:.4f}; "
+                f"speed={steps_per_second:.2f} steps/s",
+                flush=True,
+            )
+
+        if step == 1 or step % checkpoint_interval == 0 or step == steps:
+            validation_loss = (
+                evaluate(model, validation_encoded, block_size, batch_size, 4, device)
+                if validation_encoded is not None
+                else None
+            )
+            instruction_validation_loss = evaluate_instruction_loss(
+                model,
+                instruction_validation_examples,
+                tokenizer,
+                block_size,
+                batch_size,
+                device,
+            )
+            selection_loss = (
+                instruction_validation_loss
+                if instruction_validation_loss is not None
+                else validation_loss
+            )
+            selection_kind = (
+                "instruction_validation"
+                if instruction_validation_loss is not None
+                else "general_validation"
+            )
+            history.append(
+                {
+                    "step": step,
+                    "train_loss": last_loss,
+                    "validation_loss": validation_loss,
+                    "instruction_validation_loss": instruction_validation_loss,
+                    "selection_loss": selection_loss,
+                }
+            )
+
+            if selection_loss is not None and selection_loss < best_validation_loss:
+                best_validation_loss = selection_loss
+                best_validation_kind = selection_kind
+                best_validation_step = step
+                best_model_state = _snapshot_state(model)
+                torch.save(
+                    {
+                        "step": step,
+                        "model_config": model.config(),
+                        "optimizer_state": optimizer.state_dict(),
+                        "model_state": best_model_state,
+                        "seed": seed,
+                        "selection": selection_kind,
+                        "validation_loss": validation_loss,
+                        "instruction_validation_loss": instruction_validation_loss,
+                        "selection_loss": selection_loss,
+                    },
+                    output_dir / "best_checkpoint.pt",
+                )
+
+            torch.save(
+                {
+                    "step": step,
+                    "model_config": model.config(),
+                    "optimizer_state": optimizer.state_dict(),
+                    "model_state": model.state_dict(),
+                    "seed": seed,
+                },
+                output_dir / "checkpoint.pt",
+            )
+
+    if best_model_state is not None:
+        model.load_state_dict(best_model_state)
+
+    torch.save(
+        {
+            "config": config,
+            "model_state": model.cpu().state_dict(),
+        },
+        output_dir / "indoone-small.pt",
+    )
+    (output_dir / "training_history.json").write_text(
+        json.dumps(history, indent=2),
+        encoding="utf-8",
+    )
+    (output_dir / "metadata.json").write_text(
+        json.dumps(
+            {
+                "model": "indoone-small",
+                "model_version": "indoone-gpt-v1",
+                "tokenizer": "bpe-v1",
+                "vocab_size": tokenizer.vocab_size,
+                "special_tokens": list(tokenizer.SPECIAL_TOKENS),
+                "steps": steps,
+                "seed": seed,
+                "device": device,
+                "batch_size": batch_size,
+                "learning_rate": learning_rate,
+                "checkpoint_interval": checkpoint_interval,
+                "validation_enabled": validation_encoded is not None,
+                "best_validation_loss": (
+                    best_validation_loss if best_model_state is not None else None
+                ),
+                "best_validation_step": best_validation_step,
+                "best_validation_kind": best_validation_kind,
+                "instruction_validation_enabled": bool(instruction_validation_examples),
+                "instruction_validation_fingerprint": instruction_validation_fingerprint,
+                "final_model_selection": (
+                    "best_validation_loss"
+                    if best_model_state is not None
+                    else "final_step"
+                ),
+                "instruction_data_enabled": instruction_enabled,
+                "instruction_example_count": instruction_example_count,
+                "instruction_mix_ratio": instruction_mix_ratio,
+                "instruction_token_count": instruction_token_count,
+                "instruction_fingerprints": instruction_fingerprints,
+                "instruction_sampling_policy": instruction_sampling_policy,
+                "source_fingerprint": _file_fingerprint(corpus_path),
+                "validation_fingerprint": validation_fingerprint,
+                "training_text_characters": len(train_text),
+                "model_config": config,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return last_loss
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Train the Sankalp local language model")
+    parser.add_argument("--corpus", type=Path, default=Path("data/processed/train.txt"))
+    parser.add_argument("--validation", type=Path, default=Path("data/processed/validation.txt"))
+    parser.add_argument("--instructions", type=Path, default=Path("data/raw/indoone_instructions.jsonl"))
+    parser.add_argument("--multilingual-instructions", type=Path, default=Path("data/raw/indoone_multilingual_examples.jsonl"))
+    parser.add_argument("--instruction-validation", type=Path, default=Path("data/processed/instructions_validation.jsonl"))
+    parser.add_argument("--output", type=Path, default=Path("models/indoone-small"))
+    parser.add_argument("--steps", type=int, default=DEFAULT_TRAINING_STEPS)
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    parser.add_argument("--checkpoint-interval", type=int, default=DEFAULT_CHECKPOINT_INTERVAL)
+    parser.add_argument("--learning-rate", type=float, default=DEFAULT_LEARNING_RATE)
+    parser.add_argument("--instruction-mix-ratio", type=float, default=DEFAULT_INSTRUCTION_MIX_RATIO)
+    args = parser.parse_args()
+    loss = train(
+        args.corpus,
+        args.output,
+        args.steps,
+        args.seed,
+        args.validation,
+        args.batch_size,
+        args.checkpoint_interval,
+        args.learning_rate,
+        args.instructions,
+        args.multilingual_instructions,
+        args.instruction_validation,
+        args.instruction_mix_ratio,
+    )
+    print(f"training complete; final loss={loss:.4f}")
+
+
+if __name__ == "__main__":
+    main()

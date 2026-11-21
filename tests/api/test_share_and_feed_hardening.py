@@ -55,3 +55,30 @@ def test_a_short_thread_is_not_cut() -> None:
 
     assert "Showing the last" not in body
     assert body.count('class="bubble') == 6
+
+
+def test_an_entity_expansion_feed_is_refused() -> None:
+    from app.ai.local import self_update
+
+    bomb = (
+        b'<?xml version="1.0"?><!DOCTYPE lolz [<!ENTITY lol "lol">'
+        b'<!ENTITY lol2 "&lol;&lol;&lol;&lol;">]>'
+        b"<rss><channel><item><title>&lol2;</title></item></channel></rss>"
+    )
+    source = self_update.SourceDefinition(
+        name="test", url="https://example.com/feed", allowed_hosts=["example.com"]
+    )
+
+    with pytest.raises(ValueError):
+        self_update.parse_feed(bomb, source)
+
+
+def test_a_non_http_source_is_refused() -> None:
+    from app.ai.local import self_update
+
+    source = self_update.SourceDefinition(
+        name="local", url="file:///etc/passwd", allowed_hosts=["localhost"]
+    )
+
+    with pytest.raises(ValueError):
+        self_update.fetch_feed(source)

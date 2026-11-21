@@ -185,12 +185,6 @@ def test_the_endpoint_attaches_the_intent(monkeypatch) -> None:
 
     monkeypatch.setattr("app.api.chat.chat.generate_reply", fake_reply)
 
-    async def fake_tool_loop(*_args, **_kwargs):
-        # This test checks admission/intent wiring, not an unconnected GitHub API.
-        return "GitHub is not connected; no branches were read."
-
-    monkeypatch.setattr("app.api.chat.chat.run_tool_loop", fake_tool_loop)
-
     def encode(raw: bytes) -> str:
         return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 

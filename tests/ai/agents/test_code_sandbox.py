@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from app.ai.execution.code_sandbox import build_sandbox_request, sandbox_execution_tool
+from app.ai.agents.code_sandbox import build_sandbox_request, sandbox_execution_tool
 from app.ai.agents.agent import build_agent_steps, execute_agent
 
 

@@ -11,7 +11,7 @@ from typing import Any
 from app.ai.gateway.service import generate_reply
 from app.capabilities.connectors.integrations import _fernet
 from app.capabilities.connectors.store import (
-    consume_pending_email_action,
+    delete_pending_email_action,
     get_integration_token_metadata,
     get_pending_email_action,
     save_pending_email_action,
@@ -735,41 +735,28 @@ async def handle_email_chat(user_id: str, conversation_id: str, message: str) ->
 
     pending = get_pending_email_action(user, conversation)
     if pending:
-        # The shared pending table also holds GitHub proposals. An email
-        # confirmation must never consume another integration's write.
-        provider = str(pending["integration_id"])
-        if provider == "github":
-            return None
         try:
             data = _decrypt_payload(bytes(pending["encrypted_payload"]))
         except Exception:
-            consume_pending_email_action(user, conversation, pending, integration_id=provider)
+            delete_pending_email_action(user, conversation)
             return "The pending email action could not be recovered. Please ask again."
         action_type = str(pending["action_type"])
+        provider = str(pending["integration_id"])
         if action_type == "await_recipient":
             recipient_match = EMAIL_ADDRESS_RE.search(text)
             if recipient_match:
-                if consume_pending_email_action(user, conversation, pending, integration_id=provider) is None:
-                    return "This pending email request was already handled or replaced. Please review again."
+                delete_pending_email_action(user, conversation)
                 return await _draft_or_confirm_send(
                     user, conversation, provider, str(data["request"]),
                     recipient_match.group(0), bool(data.get("sending")),
                 )
             if await classify_reply_async(text) == CANCEL:
-                if consume_pending_email_action(user, conversation, pending, integration_id=provider) is None:
-                    return "That pending email request was already handled or replaced. Check the mailbox."
+                delete_pending_email_action(user, conversation)
                 return "Cancelled. Nothing was sent or saved."
             return "Please reply with the recipient email address, or CANCEL."
         decision = await classify_reply_async(text)
         if decision == CONFIRM:
-            # Single-use and account scoped: only the first concurrent CONFIRM
-            # can execute a provider action. An ambiguous outcome must not
-            # restore/retry the consumed proposal.
-            if consume_pending_email_action(user, conversation, pending, integration_id=provider) is None:
-                return (
-                    "That email confirmation was already claimed or replaced. "
-                    "Check the mailbox before requesting another action."
-                )
+            delete_pending_email_action(user, conversation)
             try:
                 return await _execute_pending(user, provider, action_type, data)
             except Exception as exc:
@@ -788,8 +775,7 @@ async def handle_email_chat(user_id: str, conversation_id: str, message: str) ->
                     )
                 return "The approved email action could not be verified. Check the mailbox before retrying."
         if decision == CANCEL:
-            if consume_pending_email_action(user, conversation, pending, integration_id=provider) is None:
-                return "That pending email request was already handled or replaced. Check the mailbox."
+            delete_pending_email_action(user, conversation)
             return "Cancelled. No email was sent or deleted."
         # Anything else - a question, a wait, a "did it happen?" - used to delete the held
         # action and hand the turn to the model, which then said it was working on

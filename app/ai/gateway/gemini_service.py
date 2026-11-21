@@ -29,7 +29,7 @@ BUSY_MESSAGE = (
 
 
 class ModelBusyError(RuntimeError):
-    """A transient provider outage or rate limit allows bounded fallback."""
+    """The provider is at its limit right now; the caller should ask again shortly."""
 
 from app.web_research.grounding import (
     GroundedEvidence,
@@ -94,11 +94,22 @@ def _get_tool_config() -> tuple[str, str]:
 
 
 async def run_with_provider_fallback(primary, fallback):
-    """Gemini primary; Groq fallback on recognized provider-busy responses only."""
+    """Run the primary provider; when it is at its limit, run the same call on the other.
+
+    One bridge, two providers. The tools, the tool loop, the retry and the logging
+    all stay where they are - only the API call underneath changes. The primary is
+    Gemini unless INDOONE_MODEL_BACKEND forces Azure; when the primary reports that
+    it is at its limit (ModelBusyError), the same call is made on the other provider,
+    so the user gets an answer instead of an error.
+
+    The Azure service is imported inside the function: it imports this module for
+    the shared system instruction and error types, so a top-level import here would
+    be circular.
+    """
     try:
         return await primary()
     except ModelBusyError:
-        logger.warning("Gemini rate limited/unavailable; invoking Groq fallback")
+        logger.warning("The primary provider is at its limit; falling back to the other provider")
         note_fallback()
         return await fallback()
 
@@ -319,7 +330,7 @@ async def _post_generate_content(
             response = await client.post(url, headers=headers, json=payload)
         except httpx.HTTPError as exc:
             if last_attempt:
-                raise ModelBusyError(BUSY_MESSAGE) from exc
+                raise RuntimeError("Gemini request failed") from exc
             await asyncio.sleep(_RETRY_DELAYS[min(attempt, len(_RETRY_DELAYS) - 1)])
             continue
         if response.status_code not in _TRANSIENT_STATUSES or last_attempt:
@@ -349,8 +360,6 @@ async def _post_generate_content(
         )
         if response.status_code in {401, 403}:
             raise RuntimeError("Gemini API authentication failed")
-        if response.status_code in _TRANSIENT_STATUSES:
-            raise ModelBusyError(BUSY_MESSAGE)
         raise RuntimeError(f"Gemini API returned HTTP {response.status_code}")
 
     try:
@@ -554,25 +563,122 @@ async def generate_gemini_function_call_reply(
         "Content-Type": "application/json",
     }
     timeout = httpx.Timeout(_TIMEOUT_SECONDS, connect=15.0)
-    # The official LangGraph engine now owns the model -> tools -> model cycle.
-    # Backend approval, user scoping and provider HTTP protocol are unchanged.
-    from app.ai.gateway.gemini_tool_graph import run_gemini_tool_graph
+    max_rounds = max(1, min(int(max_tool_rounds), 6))
+    max_total_calls = 8
+    executed_calls = 0
+    tool_names: set[str] = set()
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        return await run_gemini_tool_graph(
-            client=client,
-            url=url,
-            headers=headers,
-            model=model,
-            system_instruction=system_instruction,
-            initial_contents=contents,
-            declarations=declarations,
-            execute_tool=execute_tool,
-            max_tool_rounds=max_tool_rounds,
-            tool_mode=tool_mode,
-            return_none_when_no_tool=return_none_when_no_tool,
-            reuse_first_text_when_no_tool=reuse_first_text_when_no_tool,
-        )
+        for round_index in range(max_rounds + 1):
+            payload: dict[str, Any] = {
+                "systemInstruction": {"parts": [{"text": system_instruction}]},
+                "contents": contents,
+                "generationConfig": _generation_config(model),
+            }
+            # The final turn has no tools, stopping recursive tool execution.
+            if round_index < max_rounds:
+                offered = declarations()
+                tool_names = {str(item["name"]) for item in offered}
+                payload["tools"] = [{"functionDeclarations": offered}]
+                if round_index == 0:
+                    # "ANY" forces a tool call on the first turn (used when the
+                    # request must be grounded in live data). "AUTO" lets the
+                    # model decide whether any tool is needed at all.
+                    payload["toolConfig"] = {
+                        "functionCallingConfig": {"mode": tool_mode}
+                    }
+            response_data = await _post_generate_content(client, url, headers, payload)
+            model_content, calls = _extract_function_calls(response_data)
+            if not calls:
+                if executed_calls == 0:
+                    if return_none_when_no_tool:
+                        if not reuse_first_text_when_no_tool:
+                            # The caller decides what to do when the model chose
+                            # no tool (for example, fall back to a plain answer).
+                            return None
+                        # The model answered without a tool; that text is the
+                        # answer, so reuse it rather than asking again.
+                        try:
+                            text = _extract_text(response_data)
+                        except RuntimeError:
+                            return None
+                        return text or None
+                    # The first email response must perform a real tool call;
+                    # never treat a plain model answer as evidence of mailbox data.
+                    return (
+                        "I couldn't verify the mailbox data because no email tool "
+                        "was executed. Please retry; I won't guess about your emails."
+                    )
+                return _extract_text(response_data)
+            if round_index >= max_rounds:
+                return (
+                    "I couldn't complete that email request safely because the tool "
+                    "sequence did not finish. No unconfirmed send or delete was performed."
+                )
+
+            model_content["role"] = "model"
+            model_parts = model_content.get("parts")
+            if isinstance(model_parts, list):
+                model_content["parts"] = [
+                    part for part in model_parts
+                    if not (isinstance(part, dict) and part.get("thought") is True)
+                ]
+            contents.append(model_content)
+            response_parts: list[dict[str, Any]] = []
+            for call in calls:
+                name = str(call["name"])
+                call_id = str(call.get("id") or "")
+                if executed_calls >= max_total_calls:
+                    result: dict[str, Any] = {
+                        "ok": False,
+                        "code": "TOOL_LIMIT_REACHED",
+                        "message": TOOL_LIMIT_REACHED,
+                    }
+                elif name not in tool_names:
+                    result = {
+                        "ok": False,
+                        "code": "UNKNOWN_TOOL",
+                        "message": UNKNOWN_TOOL,
+                    }
+                elif call.get("invalid_arguments"):
+                    result = {
+                        "ok": False,
+                        "code": "INVALID_TOOL_ARGUMENTS",
+                        "message": INVALID_TOOL_ARGUMENTS,
+                    }
+                else:
+                    try:
+                        result = await execute_tool(name, call["args"])
+                        if not isinstance(result, dict):
+                            result = {
+                                "ok": False,
+                                "code": "INVALID_TOOL_RESULT",
+                                "message": INVALID_TOOL_RESULT,
+                            }
+                    except Exception:
+                        # Exception contents can contain provider response data. Keep
+                        # them out of the model context and user response.
+                        result = {
+                            "ok": False,
+                            "code": "TOOL_EXECUTION_FAILED",
+                            "message": TOOL_EXECUTION_FAILED,
+                        }
+                executed_calls += 1
+
+                function_response: dict[str, Any] = {
+                    "name": name,
+                    "response": {"result": result},
+                }
+                if call_id:
+                    function_response["id"] = call_id
+                response_parts.append({"functionResponse": function_response})
+
+            contents.append({"role": "user", "parts": response_parts})
+
+    return (
+        "I couldn't complete that email request safely. Please try again; "
+        "no action without explicit confirmation was performed."
+    )
 
 
 async def stream_gemini_reply(

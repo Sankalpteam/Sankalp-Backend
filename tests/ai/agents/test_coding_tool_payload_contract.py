@@ -12,7 +12,7 @@ import json
 import pytest
 
 from app.ai.agents.agent import build_agent_steps
-from app.ai.execution.coding import SUPPORTED_LANGUAGES, detect_language
+from app.ai.agents.coding import SUPPORTED_LANGUAGES, detect_language
 from app.ai.agents.orchestrator import plan_request
 from app.ai.execution.tool_loop import _core_payload
 from app.ai.execution.tool_registry import get_tool_spec

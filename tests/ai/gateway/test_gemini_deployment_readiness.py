@@ -9,13 +9,19 @@ from app.main import app
 client = TestClient(app, raise_server_exceptions=False)
 
 
-def test_legacy_local_provider_is_not_ready(monkeypatch) -> None:
+def test_local_provider_status_does_not_require_gemini_key(monkeypatch) -> None:
     monkeypatch.setenv("INDOONE_MODEL_BACKEND", "local")
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
 
     status = service.ai_provider_status()
-    assert status["provider"] == "local"
-    assert status["configuration_ready"] is False
+
+    assert status == {
+        "provider": "local",
+        "model": None,
+        "configuration_ready": True,
+        "api_key_configured": None,
+    }
 
 
 def test_gemini_provider_status_reports_selected_model_without_secret(monkeypatch) -> None:

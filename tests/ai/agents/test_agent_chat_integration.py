@@ -1,4 +1,3 @@
-"""The chat endpoint invokes the registered tool loop for email actions."""
 import base64
 import hashlib
 import hmac
@@ -6,6 +5,10 @@ import time
 
 from fastapi.testclient import TestClient
 
+import pytest
+
+from app.ai.agents.agent import AgentExecution, AgentStep
+from app.ai.execution.tools import ToolResult
 from app.main import app
 
 
@@ -17,16 +20,61 @@ def _auth_headers(user_id: str = "user-one") -> dict[str, str]:
     return {"Authorization": f"Bearer {user}.{timestamp}.{signature}"}
 
 
-def test_an_email_request_reaches_shared_tool_loop(monkeypatch, tmp_path):
+def test_chat_uses_model_for_tool_requests(monkeypatch) -> None:
+    monkeypatch.setenv("INDOONE_AUTH_SECRET", "x" * 32)
+
+    async def fake_execute_agent_async(message: str, **kwargs) -> AgentExecution:
+        assert message == "text stats: hello"
+        step = AgentStep(index=1, tool="text_stats", payload="hello")
+        return AgentExecution(
+            message=message,
+            steps=(step,),
+            results=(ToolResult("text_stats", "words: 1"),),
+        )
+
+    captured_history: list[tuple[str, str]] = []
+
+    async def fake_generate_reply(message: str, history=None, document_context="", extra_system_instruction: str = "") -> str:
+        captured_history.extend(history or [])
+        return "The trained model summarized the tool result."
+
+    monkeypatch.setattr("app.api.chat.chat.execute_agent_async", fake_execute_agent_async)
+    monkeypatch.setattr("app.api.chat.chat.generate_reply", fake_generate_reply)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat",
+            json={"message": "text stats: hello"},
+            headers=_auth_headers(),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["reply"] == "The trained model summarized the tool result."
+    assert any(
+        role == "tool" and "words: 1" in content
+        for role, content in captured_history
+    )
+
+
+def test_an_email_request_reaches_the_email_handler(monkeypatch, tmp_path) -> None:
+    """An email request is answered by the email handler, whatever the agent plans.
+
+    The agent still runs - it decides. What it must not do is execute an email step of
+    its own: every email tool it could plan is either gated on the user having connected
+    that mailbox or gated on approval, so it produces no result and leaves the request to
+    the email path, which knows the provider and asks the one confirmation.
+    """
     monkeypatch.setenv("INDOONE_AUTH_SECRET", "x" * 32)
     monkeypatch.setenv("INDOONE_CAPABILITY_DB", str(tmp_path / "capabilities.db"))
-    seen = []
 
-    async def fake_tool_loop(user_id, conversation_id, message, **_kwargs):
-        seen.append((user_id, message))
-        return "The email has NOT been sent. Confirm the intended recipient first."
+    handled: list[str] = []
 
-    monkeypatch.setattr("app.api.chat.chat.run_tool_loop", fake_tool_loop)
+    async def fake_email_handler(user_id, conversation_id, message, history=None):
+        handled.append(message)
+        return "The email path handled this."
+
+    monkeypatch.setattr("app.api.chat.chat.handle_email_chat_with_tools", fake_email_handler)
+
     with TestClient(app) as client:
         response = client.post(
             "/api/chat",
@@ -35,5 +83,7 @@ def test_an_email_request_reaches_shared_tool_loop(monkeypatch, tmp_path):
         )
 
     assert response.status_code == 200
-    assert seen == [("user-one", "send an email to ravi about the meeting")]
-    assert "NOT been sent" in response.json()["reply"]
+    assert handled == ["send an email to ravi about the meeting"]
+    assert response.json()["reply"] == "The email path handled this."
+
+

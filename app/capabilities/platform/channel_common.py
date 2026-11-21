@@ -182,9 +182,7 @@ def _conversation_id(channel: str, sender_id: str) -> str:
 def _tool_loop_available() -> bool:
     """Whether a model backend with function calling is configured."""
 
-    from app.ai.gateway.provider_policy import is_primary_backend_enabled
-
-    return is_primary_backend_enabled()
+    return os.getenv("INDOONE_MODEL_BACKEND", "").strip().casefold() in {"gemini", "azure"}
 
 
 def _instruction(owner_user_id: str) -> str:

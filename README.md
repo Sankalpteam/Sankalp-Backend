@@ -1,97 +1,138 @@
-# Sankalp Backend
+# Indoone Backend
 
-The Sankalp backend powers conversation, real-time research, authenticated
-connectors, and verified tool execution for Web, Android, and supported channels.
+Backend foundation for the Indoone AI + automation platform.
 
-## Production AI architecture
+## Documentation
 
-- **Gemini** is the primary model for chat, supported multimodal messages, and
-  model-selected function calls.
-- **Groq** is the secondary model for text and registered tool calls when Gemini
-  encounters supported provider-busy failures.
-- The **backend** executes tools. Models cannot bypass account credentials,
-  tool registration, access checks, approval gates, or write confirmation.
-- Connector results are evidence, not executable instructions. A failed or
-  unavailable tool must never be reported as a completed action.
-- There is **no local model checkpoint, CPU/GPU training, Colab or Azure OpenAI**
-  in the production runtime.
+- [`docs/BACKEND_CAPABILITIES.md`](docs/BACKEND_CAPABILITIES.md) - the capability
+  endpoints and the boundaries around them. Every endpoint it lists is served.
+- [`docs/DATASET_QUALITY.md`](docs/DATASET_QUALITY.md) - the training-data quality gate.
+- [`docs/ai/README_CORE_AI.md`](docs/ai/README_CORE_AI.md) and
+  [`docs/ai/CORE_AI_V1_FREEZE.md`](docs/ai/CORE_AI_V1_FREEZE.md) - the Core AI v1
+  contract and what it freezes.
+- [`deploy/DEPLOY.md`](deploy/DEPLOY.md) - how the service is set up and updated on the
+  server, and where the secrets live (not in this repository).
 
-### Configuration
+## AI direction
 
-Set secrets in the deployment environment, not in Git:
+Indoone chat keeps local-model inference as the default:
 
-```dotenv
+`/api/chat` → configured provider → local Indoone model (default) or Google Gemini (when explicitly enabled)
+
+Set `INDOONE_MODEL_BACKEND=gemini` to route chat through Google AI Studio/Gemini. In this mode, supported Gemma 4 models can decide whether a question needs live web research. When needed, the backend runs the bounded `search_web` tool against keyless public sources (Wikipedia, Wikidata, Google News RSS, OpenAlex, and Crossref), passes the evidence back to the model, and includes validated source links in the chat response. No separate paid search-provider API key is required for this free provider set. Stable questions can be answered without a search.
+
+The Gemini key stays server-side in `GEMINI_API_KEY`; the chat provider is not enabled merely because a key exists. Explicitly configure `INDOONE_MODEL_BACKEND=gemini` and a supported `GEMINI_MODEL` to activate it. If the variable is absent or set to `local`, the existing local-model answer path remains unchanged.
+
+### Gemma 4 26B A4B deployment configuration
+
+Google AI Studio / Gemini API uses the exact model ID `gemma-4-26b-a4b-it` for Gemma 4 26B A4B instruction-tuned chat. Configure these variables in the backend hosting service (keep the API key in the host's encrypted secret store; never put it in Git or the Android app):
+
+```text
 INDOONE_MODEL_BACKEND=gemini
-GEMINI_API_KEY=...
 GEMINI_MODEL=gemma-4-26b-a4b-it
+# Optional: the model that chooses and drives tools. Set a different model
+# than GEMINI_MODEL so a message and its tool calls use separate quotas.
 GEMINI_TOOL_MODEL=gemma-4-26b-a4b-it
-GROQ_API_KEY=...
-GROQ_MODEL=openai/gpt-oss-120b
+GEMINI_API_KEY=<Google AI Studio API key stored as a secret>
 ```
 
-The Gemini key is required for readiness. Groq is an optional configured
-fallback. An unsupported old value such as \`local\` or \`azure\` intentionally
-fails readiness instead of silently choosing another backend.
+The model ID defaults to `gemma-4-26b-a4b-it` when `GEMINI_MODEL` is not set. The selected model supports text and image input; the backend also preserves conversation history and offers the bounded `search_web` function for fresh information. Live API calls still depend on the deployed key having access to the model and any applicable quota.
 
-## Tool architecture
+Deployment verification:
 
-\`app/ai/execution/tool_registry.py\` is the authoritative tool catalog.
-\`app/ai/execution/tool_loop.py\` discovers the tools appropriate to a user
-turn, and dispatches execution through authenticated backend code.
-\`app/ai/gateway/groq_tool_service.py\` converts declarations to Groq's
-function-calling format and uses the **same executor**.
+1. Check `GET /ready`. If Gemini is selected but the model ID or API key configuration is missing, readiness returns HTTP 503 rather than reporting the service ready.
+2. Check `GET /health/details`. The `ai` object reports the selected `provider`, `model`, `configuration_ready`, and whether a key is configured. It never returns the secret value.
+3. Send a normal text message through `POST /api/chat` and then test a multi-turn follow-up, a photo attachment, and a request needing recent public information. A green build and a configured key do not by themselves prove the live API call succeeded; verify the resulting chat request after deployment.
 
-To add a new tool:
+The readiness endpoint checks that required configuration exists; it does not make a paid/remote model call during every health check.
 
-1. Register its name, input schema, description, and applicable permissions.
-2. Implement a server-side executor; do not put API credentials in the client.
-3. Require explicit confirmation and idempotency for write operations.
-4. Add tests for normal execution, disconnected accounts, denial, error,
-   provider fallback, and unsupported languages.
-5. Verify both \`/api/chat\` and \`/api/chat/stream\` before release.
+The trained model artifacts are loaded only from the private `Indoone-Model` GitHub Release configured by:
 
-The existing GitHub, Gmail, Zoho, web research, calendar, document, and
-channel integrations are independent of the retired training system.
+```text
+# Optional, and empty by default: no model repository exists in this organisation yet.
+GITHUB_MODEL_REPOSITORY=
+GITHUB_MODEL_RELEASE_TAG=indoone-model-v1
+GITHUB_MODEL_TOKEN=
+```
 
-## API and operational checks
+Model generation has no application-level timeout. Render Web Services allow HTTP responses to run for up to 100 minutes, so a one-hour model generation target remains within the platform request limit. citeturn301152search0turn301152search6
 
-- \`POST /api/chat\`: full conversation and registered tool routing.
-- \`POST /api/chat/stream\`: streamed Gemini response, with safe one-chunk fallback.
-- \`GET /ready\`: configuration readiness; returns 503 for missing Gemini setup.
-- \`GET /health/details\`: safe deployment status (never API secrets).
-- \`GET /api/observability\`: restricted model/tool counters when configured.
+## Dataset pipeline
 
-### Duplicate-action safety
+Place source documents in `data/raw/`. The preparation script normalizes whitespace, splits documents, removes very short entries, removes exact duplicate content using a normalized SHA-256 fingerprint, and creates deterministic train/validation/test files under `data/processed/`.
 
-Web and Android generate a fresh \`client_turn_id\` per user action, carried by
-the blocking and streaming chat endpoints. SQLite/Postgres atomically claims
-the ID using a **per-user unique key** before a tool executes.
+```bash
+python -m scripts.dataset.prepare_dataset --source data/raw/indoone_corpus.txt --output-dir data/processed
+```
 
-- The same ID returns HTTP 409 rather than replaying the request.
-- \`GET /api/chat/turns/{client_turn_id}\` lets an authenticated user inspect
-  \`received\` / \`replied\` status; this is not proof of a provider write.
-- A failed network connection may leave a record at \`received\`; the client
-  must inspect the conversation and connected app before a new action.
-- Request fingerprints are SHA-256 hashes rather than raw prompt text.
-- Missing \`client_turn_id\` on legacy clients remains supported, but lacks
-  this cross-request guard. Update both apps together with the backend.
+The processed dataset is a generated training artifact and should not be committed as a substitute for the original licensed source data.
 
-This is **durable turn admission, not exactly-once execution** across
-third-party providers. The existing approval and connector auth checks remain
-mandatory, and a user choosing a new turn ID can make a new request.
+## Project structure
 
-## Development
+- `app/api/` — HTTP API routes
+- `app/ai/` — the assistant: gateway, execution, agents, memory, quality, language, local model and training; `app/ai/training/` contains model training and evaluation
+- `app/web_research/` — free public search providers, model-selected search tool, evidence validation, source formatting, and research-specific tests
+- `data/raw/` — source training documents
+- `data/knowledge/` — approved local knowledge sources
+- `data/processed/` — generated train/validation/test splits
+- `models/` — generated local checkpoints (ignored by Git)
+- `scripts/` — dataset, training, and runtime utilities
+- `tests/` — API, dataset, AI, and integration tests
+
+## Train the first model
 
 ```bash
 python -m pip install -r requirements.txt
-python -m compileall -q app tests scripts
-python -m pytest -q -W error
-python scripts/ops/security_smoke.py
+python -m scripts.dataset.prepare_dataset --source data/raw/indoone_corpus.txt --output-dir data/processed
+python -m app.ai.training.train --corpus data/processed/train.txt --output models/indoone-small --steps 2000
 ```
 
-The CI workflow also runs Postgres-backed store tests. A passing local unit
-suite is **not** equivalent to live Gemini/Groq, OAuth, and deployment tests.
+Training writes a tokenizer, checkpoint, and metadata under `models/indoone-small/`.
 
-See \`deploy/DEPLOY.md\`, \`docs/BACKEND_CAPABILITIES.md\`, and \`.env.example\`
-for deployment, connector and configuration details. Never push secrets or
-user data into the repository.
+## Run the backend
+
+Development:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+Production/deployment:
+
+```bash
+python -m scripts.ops.run_server
+```
+
+The production entrypoint honors a deployment-provided `PORT`, defaults to one worker, disables reload in production, bounds concurrency and keep-alive/graceful-shutdown settings, suppresses the Uvicorn `Server` header, and keeps Uvicorn-level forwarded-header trust disabled. The application only enables forwarded-header handling through its explicit trusted-proxy configuration.
+
+Health check: `GET /health`
+
+Readiness check: `GET /ready`
+
+Detailed health: `GET /health/details`
+
+Chat endpoint: `POST /api/chat` with `{ "message": "Hello Indoone" }`
+
+Until a trained checkpoint exists, the API returns a clear local-model-unavailable error. Once the checkpoint is present, the same `/api/chat` endpoint uses the Indoone local model runtime.
+
+## Important
+
+The current starter corpus is only for validating the data, training, and inference pipeline. A production-quality model requires a much larger, carefully licensed and curated dataset, stronger evaluation, safety testing, and substantially more training compute.
+
+
+## Gmail mobile OAuth and token lifecycle
+
+The Android Gmail plugin requests offline access from Google using the backend's **server OAuth client ID**. It sends the one-time server authorization code to the backend; it does not send or persist an access token in the Indoone profile.
+
+Required backend environment values:
+
+- `INDOONE_GOOGLE_CLIENT_ID`: the Google OAuth **Web application/server** client ID used for the authorization-code exchange.
+- `INDOONE_GOOGLE_CLIENT_SECRET`: the matching server-side client secret. Never expose it in Android configuration, Firebase profile data, or API responses.
+- `INDOONE_OAUTH_ENCRYPTION_KEY`: a valid Fernet key used to encrypt OAuth access and refresh tokens.
+- `INDOONE_CAPABILITY_DB`: path to the SQLite capability database. In production, point this at a durable volume so encrypted integration tokens survive restarts and redeploys.
+
+The app first calls `GET /api/integrations/gmail/auth-config`; this endpoint returns only the public client ID after the server validates that OAuth credentials and the encryption key are configured. Then the app requests Google offline access and posts the one-time code to `POST /api/integrations/gmail/server-auth-code`. The backend exchanges the code, verifies the Gmail profile, and stores encrypted credentials and their expiry in SQLite. Gmail API operations refresh expired tokens when a refresh token is present. The Firebase user profile stores connection display metadata only, never provider tokens.
+
+The older `POST /api/integrations/gmail/native-token` endpoint remains for compatibility. That flow only receives a short-lived access token; if it expires without a refresh token, the user must reconnect through the offline-access flow.
+
+A green CI run verifies the code and tests, not the production Google OAuth consent configuration or the runtime database volume. Confirm those values and exercise a real Gmail connection only during the server verification stage.

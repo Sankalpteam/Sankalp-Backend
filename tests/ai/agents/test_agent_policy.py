@@ -1,6 +1,6 @@
 import time
 
-from app.ai.execution.agent_policy import deadline_failure, remaining_budget, should_retry
+from app.ai.agents.agent_policy import deadline_failure, remaining_budget, should_retry
 from app.ai.execution.tools import ToolResult
 
 
@@ -21,14 +21,3 @@ def test_deadline_failure_is_unsafe_and_non_retryable() -> None:
     assert result.safe is False
     assert result.retryable is False
     assert result.name == "calculator"
-
-
-def test_unknown_or_write_tools_are_never_automatically_retried() -> None:
-    temporary = ToolResult("github_create_branch", "timeout", safe=False, retryable=True)
-    assert should_retry(temporary, 0, 1, tool="github_create_branch") is False
-    assert should_retry(temporary, 0, 1, tool="unknown_extension_tool") is False
-
-
-def test_registered_read_only_tool_can_retry_after_transient_failure() -> None:
-    temporary = ToolResult("calculator", "timeout", safe=False, retryable=True)
-    assert should_retry(temporary, 0, 1, tool="calculator") is True

@@ -72,10 +72,10 @@ _INTEGER = {"type": "INTEGER"}
 # Contact records are client-supplied objects. Gemini requires `items` on every
 # ARRAY parameter, so the element schema is declared once and reused.
 
-# The coding executors (app/ai/execution/coding.py, app/ai/execution/code_sandbox.py) take a JSON
+# The coding executors (app/ai/coding.py, app/ai/code_sandbox.py) take a JSON
 # payload of {language, code} -- never a bare code string -- so every coding
 # tool declares `language` and sends it as JSON. The list mirrors
-# app.ai.execution.coding.SUPPORTED_LANGUAGES.
+# app.ai.agents.coding.SUPPORTED_LANGUAGES.
 _CODE_LANGUAGE = {
     "type": "STRING",
     "description": "Language of the code.",

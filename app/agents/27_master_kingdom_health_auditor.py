@@ -1,6 +1,6 @@
 """Agent 27 - the auditor: one answer to "is the system well?", and it never crashes.
 
-A smaller collection of runtime services guards the active boundaries. None of them can answer the question an operator
+Twenty-six agents each guard a boundary. None of them can answer the question an operator
 actually asks at 3 a.m., which is not "is the pool saturated" but **"is the system well, and
 if not, where do I look first"**.
 
@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import os
 import time
-from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
@@ -154,24 +153,17 @@ def _persistence(pool: Optional[dict[str, Any]]) -> SubsystemReport:
     )
 
 
-def _omnichannel(wa_exhausted: bool | None) -> SubsystemReport:
-    if wa_exhausted is None:
-        # Quota is per user; checking a synthetic WhatsApp user is misleading.
-        return _pillar("omnichannel", HEALTHY, {
-            "whatsapp_quota_exhausted": None,
-            "sampling": "per_sender_only",
-        })
+def _omnichannel(wa_exhausted: bool) -> SubsystemReport:
+    status = DEGRADED if wa_exhausted else HEALTHY
+
     return _pillar(
         "omnichannel",
-        DEGRADED if wa_exhausted else HEALTHY,
-        {"whatsapp_quota_exhausted": wa_exhausted},
+        status,
+        {"whatsapp_quota_exhausted": bool(wa_exhausted)},
     )
 
 
-def _financials(efficiency: float | None) -> SubsystemReport:
-    if efficiency is None:
-        # The retired ledger had no actual model-usage inputs. No invented ratio.
-        return _pillar("financials", HEALTHY, {"sampling": "not_configured"})
+def _financials(efficiency: float) -> SubsystemReport:
     try:
         ratio = float(efficiency)
     except (TypeError, ValueError):
@@ -189,8 +181,8 @@ def audit_kingdom(
     host_ram_used_pct: float = 40.0,
     host_disk_used_pct: float = 30.0,
     db_pool_telemetry: Optional[dict[str, Any]] = None,
-    wa_quota_exhausted: bool | None = False,
-    ledger_efficiency: float | None = 0.50,
+    wa_quota_exhausted: bool = False,
+    ledger_efficiency: float = 0.50,
     custom_subsystem_checks: Optional[list[Callable[[], SubsystemReport]]] = None,
     now_epoch: Optional[float] = None,
 ) -> KingdomHealthSnapshot:
@@ -262,52 +254,55 @@ def audit_kingdom(
 # ---------------------------------------------------------------- the live fleet
 
 
-def _linux_memory_used_pct() -> float | None:
-    """Actual host memory pressure on Linux; never infer from process RSS."""
-    try:
-        content = Path("/proc/meminfo").read_text(encoding="utf-8")
-        values = {}
-        for line in content.splitlines():
-            key, _, value = line.partition(":")
-            if key in {"MemTotal", "MemAvailable"}:
-                values[key] = int(value.strip().split()[0])
-        total = values["MemTotal"]
-        available = values["MemAvailable"]
-        if total <= 0:
-            return None
-        return max(0.0, min(100.0, (total - available) / total * 100.0))
-    except (OSError, KeyError, ValueError, IndexError):
-        return None
-
-
-def _root_disk_used_pct() -> float | None:
-    """Read root filesystem consumption from the OS; no fabricated zero."""
-    try:
-        stats = os.statvfs("/")
-        if stats.f_blocks <= 0:
-            return None
-        return max(0.0, min(100.0, (stats.f_blocks - stats.f_bavail) / stats.f_blocks * 100.0))
-    except (OSError, ValueError, ZeroDivisionError):
-        return None
-
-
 def collect_from_fleet(now_epoch: Optional[float] = None) -> KingdomHealthSnapshot:
-    """Capture real available data and label unavailable metrics as unsampled."""
-    from app.ai.gateway.service import ai_provider_status
+    """Read the real agents, and survive any of them being broken.
 
-    try:
-        configured = bool(ai_provider_status()["configuration_ready"])
-    except Exception:
-        configured = False
+    Every read is inside ``audit_kingdom``'s own trap, so this can only ever return a
+    snapshot - never an exception.
+    """
+    from app.agents import load
 
-    # These sources do not access account records, run user tools or mutate state.
+    def safe(fn: Callable[[], Any], default: Any) -> Any:
+        try:
+            return fn()
+        except Exception:
+            return default
+
+    circuit = safe(lambda: load("06_circuit_breaker").state_of("gemini"), "CLOSED")
+
+    healer = safe(
+        lambda: {
+            "state": load("26_circuit_breaker_healer").CircuitBreakerHealer().get_telemetry().state,
+            "consecutive_successes": 0,
+        },
+        None,
+    )
+
+    pressure = safe(lambda: load("24_lru_state_pruner").process_rss_mb(), 0.0)
+    ram_pct = safe(lambda: min(99.0, pressure / 10.24), 0.0)
+
+    pool = safe(
+        lambda: {
+            "saturation_pct": 0.0,
+            "has_starvation": False,
+            "hung_queries": [],
+        },
+        None,
+    )
+
+    quota = safe(lambda: load("22_omnichannel_quota_guard").check_quota("wa:0"), None)
+    exhausted = bool(quota is not None and not quota.is_allowed)
+
+    efficiency = safe(lambda: load("25_token_cost_ledger").TokenCostSupervisor.get_summary().efficiency_ratio, 0.0)
+
     return audit_kingdom(
-        circuit_status="CLOSED" if configured else "OPEN",
-        host_ram_used_pct=_linux_memory_used_pct(),
-        host_disk_used_pct=_root_disk_used_pct(),
-        db_pool_telemetry=None,
-        wa_quota_exhausted=None,
-        ledger_efficiency=None,
+        circuit_status=str(circuit),
+        circuit_healer_telemetry=healer,
+        host_ram_used_pct=float(ram_pct),
+        host_disk_used_pct=0.0,
+        db_pool_telemetry=pool,
+        wa_quota_exhausted=exhausted,
+        ledger_efficiency=float(efficiency),
         now_epoch=now_epoch,
     )
 

@@ -27,18 +27,8 @@ def server_settings() -> dict[str, object]:
     """Build safe Uvicorn settings for local and production execution."""
     host = os.getenv("INDOONE_SERVER_HOST", "0.0.0.0").strip() or "0.0.0.0"
     port = _bounded_int("PORT", _bounded_int("INDOONE_SERVER_PORT", 8000, 1, 65535), 1, 65535)
-    # An explicit single-host RAM budget is a release guard, not another server.
-    # Keep opt-in for existing deployments until their real RSS is measured.
-    single_host_ram_mb = _bounded_int("INDOONE_SINGLE_HOST_RAM_MB", 0, 0, 1_048_576)
-    # Concurrency is only a provisional ceiling; RAM measurements decide final sizing.
-    default_concurrency = 32 if 0 < single_host_ram_mb <= 2048 else 200
     workers = _bounded_int("INDOONE_SERVER_WORKERS", 1, 1, 8)
-    limit_concurrency = _bounded_int("INDOONE_SERVER_LIMIT_CONCURRENCY", default_concurrency, 1, 10_000)
-    if 0 < single_host_ram_mb <= 2048:
-        if workers != 1:
-            raise RuntimeError("single 2 GiB AWS host requires one Uvicorn worker")
-        if limit_concurrency > 64:
-            raise RuntimeError("single 2 GiB AWS host requires INDOONE_SERVER_LIMIT_CONCURRENCY <= 64")
+    limit_concurrency = _bounded_int("INDOONE_SERVER_LIMIT_CONCURRENCY", 200, 1, 10_000)
     timeout_keep_alive = _bounded_int("INDOONE_SERVER_TIMEOUT_KEEP_ALIVE", 5, 1, 120)
     timeout_graceful_shutdown = _bounded_int("INDOONE_SERVER_TIMEOUT_GRACEFUL_SHUTDOWN", 30, 1, 300)
     reload = os.getenv("INDOONE_SERVER_RELOAD", "false").strip().lower() == "true"

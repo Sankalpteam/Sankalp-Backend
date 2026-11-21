@@ -21,7 +21,7 @@ from app.ai.execution import reference_resolution
 from app.ai.execution.approval import issue_approval_token
 from app.ai.execution.tool_registry import GITHUB_TOOL_DECLARATIONS, GITHUB_WRITE_TOOL_DECLARATIONS
 from app.capabilities.connectors.store import (
-    consume_pending_github_action,
+    delete_pending_github_action,
     get_pending_github_action,
     save_pending_github_action,
 )
@@ -947,30 +947,19 @@ async def handle_github_chat_with_tools(
     if pending is not None:
         decision = await classify_reply_async(message)
         if decision == CANCEL:
-            if consume_pending_github_action(user, conversation_key, pending) is None:
-                return (
-                    "That GitHub confirmation was already handled or changed. "
-                    "Check the repository before sending another request."
-                )
+            delete_pending_github_action(user, conversation_key)
             return "Understood - cancelled. Nothing was changed in your GitHub repository."
         if decision == CONFIRM:
             try:
                 stored = _read_pending_payload(pending)
             except (ValueError, RuntimeError):
-                consume_pending_github_action(user, conversation_key, pending)
-                return "That confirmation could not be read. No new action was submitted."
-            # This atomic claim MUST happen before _execute_github_tool: two
-            # concurrent requests may both read the pending row, but only the
-            # first claimant is permitted to reach the provider write.
-            if consume_pending_github_action(user, conversation_key, pending) is None:
-                return (
-                    "That GitHub confirmation has already been claimed or replaced. "
-                    "The outcome may be uncertain; check GitHub before retrying."
-                )
+                delete_pending_github_action(user, conversation_key)
+                return "That confirmation could not be read, so nothing was changed. Ask me again."
             tool = str(stored.get("tool") or "")
             stored_arguments = stored.get("arguments")
             stored_arguments = stored_arguments if isinstance(stored_arguments, dict) else {}
             stored_arguments["approval_token"] = str(stored.get("token") or "")
+            delete_pending_github_action(user, conversation_key)
             result = await _execute_github_tool(
                 user, tool, stored_arguments, conversation_id=conversation_key, message=message
             )

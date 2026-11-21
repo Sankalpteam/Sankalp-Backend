@@ -87,9 +87,7 @@ def test_health_details_exposes_runtime_metrics() -> None:
     assert payload["sqlite"]["foreign_keys"] is True
 
 
-def test_ready_reports_readiness(monkeypatch) -> None:
-    monkeypatch.setenv("INDOONE_MODEL_BACKEND", "gemini")
-    monkeypatch.setenv("GEMINI_API_KEY", "test-key-only")
+def test_ready_reports_readiness() -> None:
     response = client.get("/ready")
 
     assert response.status_code == 200
@@ -226,12 +224,6 @@ def test_chat_returns_grounded_research_sources(monkeypatch) -> None:
 
     monkeypatch.setenv("INDOONE_AUTH_SECRET", "x" * 32)
     monkeypatch.setattr("app.api.chat.chat.generate_reply", fake_reply)
-
-    async def no_external_research(*_args, **_kwargs):
-        # This test verifies source serialization, not live research networking.
-        return None
-
-    monkeypatch.setattr("app.api.chat.chat.web_research_answer", no_external_research)
 
     response = client.post(
         "/api/chat",

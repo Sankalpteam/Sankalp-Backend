@@ -40,16 +40,16 @@ def test_a_primary_timeout_fails_over_to_the_secondary(monkeypatch, caplog) -> N
         raise TimeoutError("gemini read timeout")
         yield ""  # pragma: no cover - makes this an async generator
 
-    async def groq(*_args, **_kwargs):
+    async def azure(*_args, **_kwargs):
         for chunk in ("Hello", " from", " Azure"):
             yield chunk
 
-    _use(monkeypatch, [("Gemini", gemini), ("Groq", groq)])
+    _use(monkeypatch, [("Gemini", gemini), ("Azure OpenAI", azure)])
 
     with caplog.at_level("WARNING"):
         assert _collect(service.stream_generate("hi")) == ["Hello", " from", " Azure"]
 
-    assert any("failing over to Groq" in record.message for record in caplog.records)
+    assert any("failing over to Azure OpenAI" in record.message for record in caplog.records)
 
 
 def test_a_primary_rate_limit_fails_over(monkeypatch) -> None:
@@ -57,12 +57,12 @@ def test_a_primary_rate_limit_fails_over(monkeypatch) -> None:
         raise RuntimeError("Gemini API returned HTTP 429")
         yield ""  # pragma: no cover
 
-    async def groq(*_args, **_kwargs):
-        yield "groq answered"
+    async def azure(*_args, **_kwargs):
+        yield "azure answered"
 
-    _use(monkeypatch, [("Gemini", gemini), ("Groq", groq)])
+    _use(monkeypatch, [("Gemini", gemini), ("Azure OpenAI", azure)])
 
-    assert _collect(service.stream_generate("hi")) == ["groq answered"]
+    assert _collect(service.stream_generate("hi")) == ["azure answered"]
 
 
 def test_a_primary_that_stalls_before_the_first_chunk_fails_over(monkeypatch) -> None:
@@ -70,13 +70,13 @@ def test_a_primary_that_stalls_before_the_first_chunk_fails_over(monkeypatch) ->
         await asyncio.sleep(5)
         yield "too late"
 
-    async def groq(*_args, **_kwargs):
-        yield "groq answered"
+    async def azure(*_args, **_kwargs):
+        yield "azure answered"
 
-    _use(monkeypatch, [("Gemini", slow_gemini), ("Groq", groq)])
+    _use(monkeypatch, [("Gemini", slow_gemini), ("Azure OpenAI", azure)])
     monkeypatch.setattr(service, "_STREAM_FIRST_CHUNK_SECONDS", 0.05)
 
-    assert _collect(service.stream_generate("hi")) == ["groq answered"]
+    assert _collect(service.stream_generate("hi")) == ["azure answered"]
 
 
 def test_a_failure_after_the_first_chunk_is_not_hidden(monkeypatch) -> None:
@@ -84,10 +84,10 @@ def test_a_failure_after_the_first_chunk_is_not_hidden(monkeypatch) -> None:
         yield "partial"
         raise RuntimeError("connection dropped")
 
-    async def groq(*_args, **_kwargs):
-        yield "groq answered"
+    async def azure(*_args, **_kwargs):
+        yield "azure answered"
 
-    _use(monkeypatch, [("Gemini", half_broken), ("Groq", groq)])
+    _use(monkeypatch, [("Gemini", half_broken), ("Azure OpenAI", azure)])
 
     with pytest.raises(RuntimeError):
         _collect(service.stream_generate("hi"))
@@ -98,25 +98,36 @@ def test_when_every_provider_fails_the_blocking_path_answers(monkeypatch) -> Non
         raise TimeoutError("no")
         yield ""  # pragma: no cover
 
-    async def groq(*_args, **_kwargs):
+    async def azure(*_args, **_kwargs):
         raise RuntimeError("also no")
         yield ""  # pragma: no cover
 
-    _use(monkeypatch, [("Gemini", gemini), ("Groq", groq)], blocking="the blocking answer")
+    _use(monkeypatch, [("Gemini", gemini), ("Azure OpenAI", azure)], blocking="the blocking answer")
 
     assert _collect(service.stream_generate("hi")) == ["the blocking answer"]
 
 
-def test_groq_is_a_blocking_fallback_not_a_fake_stream(monkeypatch) -> None:
+def test_azure_is_not_offered_even_with_its_credentials(monkeypatch) -> None:
+    """Azure is out of the chain.
+
+    It used to be the streaming secondary, and the test above asserted that. We have no Azure
+    subscription, so every failover attempt paid a timeout and then failed - the worst of both
+    worlds. Credentials in the environment no longer bring it back: streaming is Gemini only.
+    """
     monkeypatch.setenv("INDOONE_MODEL_BACKEND", "gemini")
-    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
-    assert [label for label, _stream in service._provider_streams()] == ["Gemini"]
+    monkeypatch.setenv("GEMINI_API_KEY", "g-key")
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "a-key")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com")
+    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT", "deployment")
+
+    labels = [label for label, _stream in service._provider_streams()]
+
+    assert labels == ["Gemini"]
 
 
 def test_no_secondary_is_offered_without_its_credentials(monkeypatch) -> None:
     monkeypatch.setenv("INDOONE_MODEL_BACKEND", "gemini")
     monkeypatch.setenv("GEMINI_API_KEY", "g-key")
-    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
 
     assert [label for label, _stream in service._provider_streams()] == ["Gemini"]

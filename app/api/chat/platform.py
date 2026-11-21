@@ -8,25 +8,18 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from typing import Literal
-from app.ai.execution.chat_agent_bridge import validate_opt_in, run_opt_in_agent
 
 from app.ai.quality.answer_quality import assess_answer
 from app.ai.execution.account_context import accounts_instruction, without_stale_refusals
 from app.ai.execution.request_context import conversation_instruction
 from app.ai.execution.tool_failure import failure_line, take_tool_failure
 from app.ai.execution.tool_loop import run_tool_loop
-from app.ai.execution.turn_idempotency import claim_turn, mark_turn_replied
 from app.ai.execution import action_chips
 from app.ai.memory.conversation_store import ConversationStore
 from app.ai.memory.file_context import read_text_file
 from app.ai.memory.memory import extract_memory_candidates
 from app.ai.gateway.service import stream_generate
 from app.plugins.github.chat_tools import handle_github_chat_with_tools
-from app.plugins.email.email_assistant import handle_email_chat
-from app.capabilities.connectors.store import get_pending_email_action
-from app.ai.execution.confirmation import classify_reply_async
-from app.ai.gateway.ai_rules import EMAIL_PENDING_ACTION
 from app.web_research.grounding import split_grounded_sources
 from app.api.security.errors import REQUEST_FAILED_MESSAGE, provider_failure
 
@@ -40,8 +33,6 @@ class StreamChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=20_000)
     conversation_id: str | None = Field(default=None, max_length=128)
     file_id: str | None = Field(default=None, max_length=128)
-    client_turn_id: str | None = Field(default=None, min_length=8, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$")
-    execution_mode: Literal["default", "langgraph"] = "default"
 
 
 class MemoryCandidatesRequest(BaseModel):
@@ -77,9 +68,7 @@ async def stream_chat(request: Request, body: StreamChatRequest) -> StreamingRes
     document_context = ""
     if body.file_id:
         try:
-            document_context = read_text_file(body.file_id, user_id=user_id)
-        except PermissionError as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
+            document_context = read_text_file(body.file_id)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -90,75 +79,7 @@ async def stream_chat(request: Request, body: StreamChatRequest) -> StreamingRes
 
         _admit(request, user_id)
 
-    if body.execution_mode == "langgraph":
-        validate_opt_in(
-            user_id=user_id, message=body.message, client_turn_id=body.client_turn_id,
-            conversation_id=body.conversation_id,
-            has_attachments=bool(body.file_id), has_approval_tokens=False,
-        )
-
-    # This admission runs *before* any GitHub/email tool. A client can retry
-    # its transport, but a turn that may have written data cannot be replayed.
-    if body.client_turn_id:
-        if not user_id:
-            raise HTTPException(status_code=401, detail="authenticated user required for turn idempotency")
-        try:
-            status = claim_turn(
-                user_id, body.client_turn_id, message=body.message,
-                conversation_id=body.conversation_id, file_id=body.file_id,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if status != "new":
-            raise HTTPException(
-                status_code=409,
-                detail="This chat turn was already received. Its outcome may be uncertain; check the conversation or connected app before trying again.",
-            )
-
     action_chips.begin()
-
-    if body.execution_mode == "langgraph":
-        # Execute before opening the SSE response; failures keep their HTTP
-        # status and never silently fall back to a SECOND chat tool dispatch.
-        outcome = await run_opt_in_agent(user_id=user_id, message=body.message)
-        try:
-            _stream_store.append(
-                conversation_id,
-                [("user", body.message), ("assistant", outcome.reply)],
-                user_id=user_id,
-            )
-        except PermissionError as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        if body.client_turn_id:
-            try:
-                mark_turn_replied(user_id, body.client_turn_id)
-            except Exception:
-                logger.warning("Unable to mark LangGraph streamed turn replied", exc_info=True)
-        action_chips.reset()
-
-        async def agent_events():
-            yield "data: " + json.dumps(
-                {"type": "meta", "conversation_id": conversation_id}, ensure_ascii=False
-            ) + "\n\n"
-            yield "data: " + json.dumps(
-                {"type": "delta", "text": outcome.reply}, ensure_ascii=False
-            ) + "\n\n"
-            yield "data: " + json.dumps(
-                {
-                    "type": "done", "reply": outcome.reply,
-                    "action_chips": [], "sources": [],
-                    "agent_run_id": outcome.agent_run_id,
-                    "agent_status": outcome.agent_status,
-                },
-                ensure_ascii=False,
-            ) + "\n\n"
-
-        return StreamingResponse(
-            agent_events(), media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
 
     # The same pipeline as /api/chat, not a lesser copy of it.
     #
@@ -168,46 +89,20 @@ async def stream_chat(request: Request, body: StreamChatRequest) -> StreamingRes
     # as one chunk - there is nothing to reveal gradually.
     tool_reply: str | None = None
     if user_id:
-        pending_email = None
         try:
-            # A pending Zoho Mail action must be resolved BEFORE the GitHub
-            # router or a new model call. Otherwise the streamed CONFIRM/CANCEL
-            # could be answered as ordinary chat while the approval stays live.
-            pending_email = get_pending_email_action(user_id, conversation_id)
-            email_owns_this = bool(
-                pending_email
-                and str(pending_email.get("integration_id") or "").casefold() != "github"
+            tool_reply = await handle_github_chat_with_tools(
+                user_id,
+                body.message,
+                history=history,
+                conversation_id=conversation_id,
             )
-            if email_owns_this:
-                action_type = str(pending_email.get("action_type") or "")
-                decision = await classify_reply_async(body.message)
-                if action_type == "await_recipient" or decision in {"confirm", "cancel"}:
-                    tool_reply = await handle_email_chat(user_id, conversation_id, body.message)
-                else:
-                    tool_reply = EMAIL_PENDING_ACTION
-                # Never leave this branch for a second executor or plain LLM.
-                if tool_reply is None:
-                    raise RuntimeError("Pending email action did not produce a verified outcome")
-            else:
-                tool_reply = await handle_github_chat_with_tools(
-                    user_id,
-                    body.message,
-                    history=history,
-                    conversation_id=conversation_id,
+
+            if tool_reply is None:
+                tool_reply = await run_tool_loop(
+                    user_id, conversation_id, body.message, history=history,
+                    extra_system_instruction=accounts,
                 )
-                if tool_reply is None:
-                    tool_reply = await run_tool_loop(
-                        user_id, conversation_id, body.message, history=history,
-                        extra_system_instruction=accounts,
-                    )
         except Exception:
-            logger.exception("Sankalp streaming tool routing failed")
-            from app.ai.execution.tool_intent import requires_tool_result
-            if pending_email or requires_tool_result(body.message):
-                raise HTTPException(
-                    status_code=503,
-                    detail="The requested tool operation could not be verified.",
-                )
             tool_reply = None
 
     # The same rule as /api/chat: a failed tool hands its reason to the model.
@@ -274,12 +169,6 @@ async def stream_chat(request: Request, body: StreamChatRequest) -> StreamingRes
             )
         except (ValueError, PermissionError) as exc:
             logger.warning("Streaming answer could not be stored: %s", exc)
-
-        if body.client_turn_id:
-            try:
-                mark_turn_replied(user_id, body.client_turn_id)
-            except Exception:
-                logger.warning("Unable to mark streamed chat turn replied", exc_info=True)
 
         # The chips ride on the last event, so a client that only streams has the same
         # follow-ups the blocking endpoint returns: Confirm/Cancel for a held write, the

@@ -1,6 +1,6 @@
 import pytest
 
-from app.ai.execution.agent_contracts import ToolExecutionContract, ToolInvocation, serialize_tool_result
+from app.ai.agents.agent_contracts import ToolExecutionContract, ToolInvocation, serialize_tool_result
 from app.ai.execution.tools import ToolResult
 
 

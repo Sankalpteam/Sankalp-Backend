@@ -664,9 +664,17 @@ async def handle_email_chat_with_tools(
         if not capability_gate().wants(text, capability_gate().MAIL):
             return None
 
-    from app.ai.gateway.gemini_service import generate_gemini_function_call_reply, run_with_provider_fallback
-    from app.ai.gateway.groq_service import groq_available
-    from app.ai.gateway.groq_tool_service import generate_groq_function_call_reply
+    # Keep the local-model fallback available; Gemini or Azure handles the tools.
+    import os
+    _model_backend = os.getenv("INDOONE_MODEL_BACKEND", "").strip().casefold()
+    if _model_backend not in {"gemini", "azure"}:
+        return await handle_email_chat(user, conversation, text)
+
+    from app.ai.gateway.gemini_service import (
+        generate_gemini_function_call_reply,
+        run_with_provider_fallback,
+    )
+    from app.ai.gateway.azure_openai_service import generate_azure_function_call_reply
 
     write_tools = {
         "create_email_draft",
@@ -730,24 +738,11 @@ async def handle_email_chat_with_tools(
             "If a tool returns an error, explain its message honestly and ask for only the needed next step."
         ),
     )
-    async def fallback_to_groq():
-        if write_action_completed:
-            return "The email operation was handled by the backend; it will not be run again."
-        return await generate_groq_function_call_reply(
-            text,
-            **_shared,
-            tool_mode="ANY",
-            return_none_when_no_tool=True,
-            reuse_first_text_when_no_tool=False,
-        )
-
-    if groq_available():
-        model_reply = await run_with_provider_fallback(
-            lambda: generate_gemini_function_call_reply(text, **_shared),
-            fallback_to_groq,
-        )
-    else:
-        model_reply = await generate_gemini_function_call_reply(text, **_shared)
+    _azure_first = _model_backend == "azure"
+    model_reply = await run_with_provider_fallback(
+        lambda: (generate_azure_function_call_reply if _azure_first else generate_gemini_function_call_reply)(text, **_shared),
+        lambda: (generate_gemini_function_call_reply if _azure_first else generate_azure_function_call_reply)(text, **_shared),
+    )
     if pending_send is not None:
         if pending_send.get("is_reply") == "true":
             return (

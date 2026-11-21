@@ -22,9 +22,6 @@ from app.api.content.documents import router as documents_router
 from app.api.content.files import router as files_router
 from app.api.security.errors import error_response
 from app.api.connectors.integrations import router as integrations_router
-from app.api.connectors.composio_gmail import router as composio_gmail_router
-from app.api.developer_keys import router as developer_keys_router
-from app.api.developer_inference import router as developer_inference_router
 from app.plugins.zoho_mail.oauth_routes import router as zoho_mail_oauth_router
 from app.plugins.gmail.routes import router as gmail_router
 from app.plugins.zoho_mail.routes import router as zoho_mail_router
@@ -157,12 +154,6 @@ async def _conversation_cleanup_loop() -> None:
             deleted = store.purge_expired_closed(max_age_days=7)
             if deleted:
                 logger.info("expired conversations deleted", extra={"deleted_count": deleted})
-            # Reuse the existing hourly cleanup loop: never spin up another
-            # service or retain unbounded minute-bucket rows on the 2 GiB host.
-            from app.api.developer_prepaid import prune_rate_windows
-            pruned = prune_rate_windows()
-            if pruned:
-                logger.info("expired developer rate windows deleted", extra={"deleted_count": pruned})
         except Exception:
             logger.exception("expired conversation cleanup failed")
         await asyncio.sleep(3600)
@@ -233,18 +224,11 @@ async def request_context_middleware(request: Request, call_next):
     # CORS middleware still decides whether the origin is allowed, and answers a
     # preflight from an origin it does not allow without that header.
     preflight = request.method.upper() == "OPTIONS"
-    # B2B public-model route authenticates developer API keys inside its own
-    # handler. Never interpret developer keys as Firebase consumer sessions.
-    developer_inference_route = (
-        request.method.upper() == "POST"
-        and request.url.path == "/v1/chat/completions"
-    )
     authentication_exempt = (
         provider_webhook
         or public_oauth_callback
         or public_health_check
         or public_share_page
-        or developer_inference_route
         or preflight
     )
     principal = ""
@@ -263,7 +247,7 @@ async def request_context_middleware(request: Request, call_next):
 
     # One burst limit for the whole API surface, keyed by client address. Provider webhooks
     # are excluded: they are bursty by nature and already authenticated by signature.
-    if (request.url.path.startswith("/api/") or developer_inference_route) and not provider_webhook:
+    if request.url.path.startswith("/api/") and not provider_webhook:
         from app.ai.execution import limits as api_limits
 
         if api_limits.api_limits_enabled():
@@ -389,9 +373,6 @@ app.include_router(voice_session_router, prefix="/api")
 app.include_router(vibe_router, prefix="/api")
 app.include_router(approvals_router, prefix="/api")
 app.include_router(integrations_router, prefix="/api")
-app.include_router(composio_gmail_router, prefix="/api")
-app.include_router(developer_keys_router, prefix="/api")
-app.include_router(developer_inference_router)
 app.include_router(zoho_mail_router, prefix="/api")
 app.include_router(telegram_router, prefix="/api")
 app.include_router(whatsapp_router, prefix="/api")
@@ -530,5 +511,7 @@ async def health_details() -> dict[str, object]:
         "sqlite": sqlite_runtime_status(),
         "ai": {
             **ai_service.ai_provider_status(),
+            "model_artifacts_checked": ai_service._ARTIFACT_CHECK_COMPLETED,
+            "model_runtime_ready": ai_service._runtime is not None,
         },
     }

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from app.ai.execution.coding import suggest_fixes
+from app.ai.agents.coding import suggest_fixes
 from app.ai.execution.tools import run_tool
 
 

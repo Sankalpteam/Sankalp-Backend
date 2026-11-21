@@ -6,13 +6,11 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
-from typing import Literal
 
 from app.ai.gateway.ai_rules import EMAIL_PENDING_ACTION
 from app.ai.memory.conversation_store import ConversationStore
 from app.ai.memory.file_context import read_text_file
 from app.ai.gateway.service import generate_reply
-from app.ai.gateway.provider_policy import is_primary_backend_enabled
 from app.ai.execution.connector_authorization import authorize_connector
 import app.agents as _agents
 from app.ai.execution.text_match import subject_of as _subject_of
@@ -31,7 +29,7 @@ from app.capabilities.media.document_extract import (
     PDF_MIME,
     extract_document,
 )
-from app.capabilities.media.vision import ALLOWED_IMAGE_MIMES, MAX_IMAGE_BYTES
+from app.capabilities.media.vision import ALLOWED_IMAGE_MIMES, MAX_IMAGE_BYTES, analyze_image
 from app.web_research.fast_path import answer_instead_of_promise, web_research_answer
 from app.web_research.grounding import split_grounded_sources
 from app.api.security.dependencies import current_user_id
@@ -43,9 +41,8 @@ from app.ai.execution.confirmation import classify_reply_async
 from app.ai.execution import limits as chat_limits
 from app.ai.execution.executor_claim import claim as _claim_executor
 from app.ai.execution.reply_guard import guard_reply
-from app.ai.execution.chat_agent_bridge import enabled as langgraph_chat_enabled, validate_opt_in, run_opt_in_agent
 from app.ai.execution.tool_loop import run_tool_loop
-from app.ai.execution.turn_idempotency import claim_turn, mark_turn_replied, turn_status
+from app.ai.agents.agent_async import execute_agent_async
 from app.capabilities.connectors.store import (
     get_pending_email_action,
     get_pending_github_action,
@@ -98,11 +95,6 @@ class ChatRequest(BaseModel):
     attachments: list[ChatMediaAttachment] = Field(default_factory=list, max_length=MAX_CHAT_ATTACHMENTS)
     # Server-issued approval tokens for data-changing tools the user has confirmed.
     approval_tokens: list[str] = Field(default_factory=list, max_length=32)
-    # One ID per user action, shared between /chat and /chat/stream.
-    # Legacy clients may omit it; new clients must keep it stable on retries.
-    client_turn_id: str | None = Field(default=None, min_length=8, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$")
-    # Explicit client opt-in, never inferred from conversational text.
-    execution_mode: Literal["default", "langgraph"] = "default"
 
 
 def _decode_chat_attachment(body: ChatRequest) -> dict[str, object] | None:
@@ -133,6 +125,32 @@ def _decode_chat_attachment(body: ChatRequest) -> dict[str, object] | None:
         raise HTTPException(status_code=413, detail="attachment exceeds the 8 MB limit")
 
     return {"filename": filename, "mime_type": mime_type, "content": content}
+
+
+async def _agent_history_for_chat(
+    user_id: str,
+    message: str,
+    history: list[tuple[str, str]],
+    approval_tokens: list[str] | None,
+) -> list[tuple[str, str]] | None:
+    """Run the multi-step agent and return the history with its tool output appended.
+
+    Returns None when the agent planned nothing, so the caller can fall back to the
+    single-tool loop and the plugin paths exactly as before.
+
+    The agent plans its steps deterministically, so it does not need the model
+    backend to be enabled, and it can feed one step's result into the next. Its output
+    goes into the history as a tool turn, and the model then answers from it.
+    """
+    execution = await execute_agent_async(
+        message,
+        user_id=user_id,
+        approval_tokens=tuple(approval_tokens or ()),
+    )
+    if not execution.results:
+        return None
+    lines = [f"{result.name}: {result.output}" for result in execution.results]
+    return [*history, ("tool", "\n".join(lines))]
 
 
 def _decode_chat_attachments(body: ChatRequest) -> list[dict[str, object]]:
@@ -202,8 +220,6 @@ class ChatResponse(BaseModel):
     # Empty for most replies. A held write carries Confirm/Cancel, so the user presses a
     # button instead of typing a word the reply had to spell out.
     action_chips: list[ActionChip] = Field(default_factory=list)
-    agent_run_id: str | None = None
-    agent_status: str | None = None
 
 
 def _principal(request: Request) -> str:
@@ -333,49 +349,12 @@ def _admit(request: Request, user_id: str) -> None:
     )
 
 
-@router.get("/chat/agent-mode")
-async def chat_agent_mode_availability(request: Request) -> dict[str, bool]:
-    """Read-only capability discovery for explicit Web/Android user opt-in.
-
-    This endpoint does not enable the agent, start a tool, mint an approval
-    token or reveal another person's runs.
-    """
-    _principal(request)
-    return {"enabled": langgraph_chat_enabled()}
-
-
-@router.post("/chat", response_model=ChatResponse, response_model_exclude_none=True)
+@router.post("/chat", response_model=ChatResponse)
 async def chat(request: Request, body: ChatRequest) -> ChatResponse:
     action_chips.begin()
     user_id = _principal(request)
     body.message = _frontline(request, user_id, body.message)
     _admit(request, user_id)
-    if body.execution_mode == "langgraph":
-        validate_opt_in(
-            user_id=user_id, message=body.message, client_turn_id=body.client_turn_id,
-            conversation_id=body.conversation_id,
-            has_attachments=bool(
-                body.file_id or body.file_ids or body.attachments
-                or body.attachment_base64 or body.attachment_filename
-                or body.attachment_mime_type
-            ),
-            has_approval_tokens=bool(body.approval_tokens),
-        )
-    if body.client_turn_id:
-        if not user_id:
-            raise HTTPException(status_code=401, detail="authenticated user required for turn idempotency")
-        try:
-            status = claim_turn(
-                user_id, body.client_turn_id, message=body.message,
-                conversation_id=body.conversation_id, file_id=body.file_id,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if status != "new":
-            raise HTTPException(
-                status_code=409,
-                detail="This chat turn was already received. Its outcome may be uncertain; check the conversation or connected app before trying again.",
-            )
     is_new_conversation = body.conversation_id is None
     conversation_id = body.conversation_id or str(uuid4())
 
@@ -399,35 +378,6 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    if body.execution_mode == "langgraph":
-        # One opt-in LangGraph execution, not the legacy GitHub/email router
-        # followed by a second model tool loop. The authenticated /api/agent
-        # approval endpoint is the ONLY way to resume a paused write.
-        outcome = await run_opt_in_agent(user_id=user_id, message=body.message)
-        try:
-            _store.append(
-                conversation_id,
-                [("user", body.message), ("assistant", outcome.reply)],
-                user_id=user_id,
-            )
-        except PermissionError as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        if body.client_turn_id:
-            try:
-                mark_turn_replied(user_id, body.client_turn_id)
-            except Exception:
-                logger.warning("Unable to mark LangGraph chat turn replied", exc_info=True)
-        action_chips.reset()
-        return ChatResponse(
-            conversation_id=conversation_id,
-            reply=outcome.reply,
-            action_chips=[],
-            agent_run_id=outcome.agent_run_id,
-            agent_status=outcome.agent_status,
-        )
-
     document_context_parts: list[str] = []
     media_attachments: list[dict[str, object]] = []
     attachments = _decode_chat_attachments(body)
@@ -443,17 +393,41 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
         if text.strip():
             document_context_parts.append(f"Content from attached text file {file_id}:\n{text[:100_000]}")
 
-    # Only Gemini accepts image/PDF attachments; no local inference is loaded.
-    gemini_enabled = is_primary_backend_enabled()
+    # Media handling needs a provider that accepts images. Both Gemini and Azure
+    # do, so this is a provider check, not a gemini-only one.
+    _model_backend = os.getenv("INDOONE_MODEL_BACKEND", "").strip().casefold()
+    gemini_enabled = _model_backend in {"gemini", "azure"}
     for attachment in attachments:
         filename = str(attachment["filename"])
         mime_type = str(attachment["mime_type"])
         content = bytes(attachment["content"])
 
         if mime_type in ALLOWED_IMAGE_MIMES:
-            if not gemini_enabled:
-                raise HTTPException(status_code=503, detail="Gemini media support is not configured")
-            media_attachments.append(attachment)
+            if gemini_enabled:
+                media_attachments.append(attachment)
+            else:
+                # Local inference can only use readable text extracted from images.
+                try:
+                    vision_result = analyze_image(
+                        filename,
+                        mime_type,
+                        base64.b64encode(content).decode("ascii"),
+                    )
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
+                ocr_result = vision_result.get("ocr", {})
+                ocr_text = str(ocr_result.get("text", "")).strip() if isinstance(ocr_result, dict) else ""
+                if not ocr_text:
+                    raise HTTPException(
+                        status_code=503,
+                        detail=(
+                            f"The local text model could not read text from {filename}. "
+                            "Enable the Gemini backend to understand images."
+                        ),
+                    )
+                document_context_parts.append(
+                    f"Readable text extracted from image {filename}:\n{ocr_text[:100_000]}"
+                )
         elif mime_type in {PDF_MIME, DOCX_MIME}:
             try:
                 document = extract_document(filename, mime_type, content)
@@ -502,12 +476,6 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
             except (ValueError, PermissionError):
                 pass
 
-            if body.client_turn_id:
-                try:
-                    mark_turn_replied(user_id, body.client_turn_id)
-                except Exception:
-                    logger.warning("Unable to mark chat turn replied", exc_info=True)
-
             return ChatResponse(
                 conversation_id=conversation_id,
                 reply=calendar_reply,
@@ -529,7 +497,8 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
             # into the next, and it is deterministic, so it does not depend on the model
             # backend. What it gathers goes into the history and the model answers from
             # it below. When it plans nothing, every path under this runs as it did.
-                # The agent decides. Every email tool is either gated on the user having
+            agent_ran = False
+            # The agent decides. Every email tool is either gated on the user having
             # connected that mailbox or gated on approval, so for an email request the
             # agent either plans nothing or blocks the step it planned - and in both
             # cases it produces no result, which leaves the request to the email path
@@ -612,7 +581,22 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
                 if tool_reply is not None:
                     _claim_executor(_turn, "web_research")
 
-            # The single tool loop handles registered plugins and future tools.
+            # No gate on whether to offer tools: the model is given four small
+            # declarations and find_tools, so an ordinary message costs a few hundred
+            # tokens rather than the whole catalogue. A message that needs nothing is
+            # answered in one call with no tool called, and the agent above still runs
+            # first for the short requests a model would have to be told about.
+            if tool_reply is None and not email_owns_this:
+                agent_history = await _agent_history_for_chat(
+                    user_id,
+                    body.message,
+                    history,
+                    body.approval_tokens,
+                )
+                if agent_history is not None:
+                    history = agent_history
+                    agent_ran = True
+                    _claim_executor(_turn, "agent_planner")
             if gemini_enabled:
                 # A pending email confirmation must be resolved before anything else.
                 pending = get_pending_email_action(user_id, conversation_id)
@@ -627,7 +611,7 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
                         tool_reply = (
                             EMAIL_PENDING_ACTION
                         )
-                if tool_reply is None:
+                if tool_reply is None and not agent_ran:
                     # One loop, every tool: the model chooses whether and which to call,
                     # and asks for anything else with find_tools. This is the fallback
                     # for when the agent planned nothing.
@@ -643,14 +627,32 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
                         if tool_reply is not None:
                             _claim_executor(_turn, "tool_loop")
                     except Exception:
-                        logger.exception("Sankalp unified tool loop failed")
-                        from app.ai.execution.tool_intent import requires_tool_result
-                        if requires_tool_result(body.message):
-                            raise HTTPException(
-                                status_code=503,
-                                detail="The requested tool operation could not be verified. No unconfirmed action was reported as complete.",
-                            )
                         tool_reply = None
+            else:
+                # Local backend keeps the deterministic plugin path.
+                try:
+                    tool_reply = await handle_email_chat_with_tools(
+                        user_id,
+                        conversation_id,
+                        body.message,
+                        history=history,
+                    )
+                except Exception:
+                    # Do not conflate model/provider failures with expired mailbox tokens.
+                    tool_reply = (
+                        "I couldn't complete that email request because an internal AI or "
+                        "email service failed. Please retry shortly. I will not claim that "
+                        "an email was sent or deleted unless the operation was confirmed."
+                    )
+                if tool_reply is None and not agent_ran:
+                    tool_reply = await handle_github_chat_with_tools(
+                        user_id,
+                        body.message,
+                        history=history,
+                        approval_tokens=tuple(body.approval_tokens or ()),
+                        conversation_id=conversation_id,
+                    )
+
         # A blank reply is not an answer. Every executor returns None when it has nothing to
         # say, but a formatter that produced "" slipped through as a real reply and the user
         # got an empty bubble. Normalising here covers every path at once.
@@ -822,35 +824,12 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
     chips = synthesized.action_chips or action_chips.collected()
     action_chips.reset()
 
-    if body.client_turn_id:
-        try:
-            mark_turn_replied(user_id, body.client_turn_id)
-        except Exception:
-            logger.warning("Unable to mark chat turn replied", exc_info=True)
-
     return ChatResponse(
         conversation_id=conversation_id,
         reply=reply,
         sources=[ChatSource(title=source.title, url=source.url) for source in web_sources],
         action_chips=[ActionChip(label=chip["label"], action=chip["action"]) for chip in chips],
     )
-
-@router.get("/chat/turns/{client_turn_id}")
-async def chat_turn_status(request: Request, client_turn_id: str) -> dict[str, str]:
-    """Inspect the admission state without re-running any action.
-
-    'received' is deliberately ambiguous: the remote write may or may not
-    have completed. Clients must not turn it into an automatic retry.
-    """
-    user_id = current_user_id(request)
-    try:
-        state = turn_status(user_id, client_turn_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if state is None:
-        raise HTTPException(status_code=404, detail="chat turn not found")
-    return {"client_turn_id": client_turn_id, "status": state}
-
 
 @router.post("/code-edit-suggestion")
 async def code_edit_suggestion(request: Request, body: CodeEditSuggestionRequest) -> dict[str, object]:

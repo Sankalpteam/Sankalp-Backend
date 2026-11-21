@@ -1,4 +1,0 @@
-# Optional official MIT Composio Python SDK for hosted OAuth + Gmail reads.
-# Pinned to the CI-inspected SDK version so a moving upstream API cannot silently change production.
-# Only install after measuring memory on the ONE existing 2 GiB AWS server.
-composio==0.33.0
