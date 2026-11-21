@@ -104,3 +104,22 @@ def test_public_web_read_is_separate_operator_opt_in_only():
     )
     assert not admit_chat_plan(["mcp:unreviewed/search"], allow_web_research=True)
     assert not admit_chat_plan(["prepare_email_to_send"], allow_web_research=True)
+
+
+def test_zoho_mail_graph_route_is_one_trusted_read_only_and_default_blocked():
+    assert classify_registered_tool("list_recent_emails").route == "blocked"
+    assert not admit_chat_plan(["list_recent_emails"])
+    capability = classify_registered_tool("list_recent_emails", allow_zoho_read=True)
+    assert (capability.source, capability.risk, capability.route) == (
+        "legacy_email", "read", "read",
+    )
+    assert admit_chat_plan(["list_recent_emails"], allow_zoho_read=True)
+    for name in (
+        "search_emails", "read_email", "create_email_draft", "prepare_email_reply",
+        "prepare_email_to_send", "prepare_email_deletion", "mcp:untrusted/mail",
+    ):
+        assert not admit_chat_plan([name], allow_zoho_read=True)
+    assert not admit_chat_plan(
+        ["list_recent_emails", "github_delete_branch"],
+        allow_zoho_read=True, allow_approval_write=True,
+    )
