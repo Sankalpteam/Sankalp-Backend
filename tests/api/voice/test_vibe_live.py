@@ -517,10 +517,20 @@ def test_vibe_offers_only_the_connected_connectors(monkeypatch: pytest.MonkeyPat
         assert not [name for name in names if name.startswith(prefix)]
 
 
-def test_vibe_hides_every_connector_tool_when_nothing_is_connected(
+def test_vibe_hides_connector_tools_when_nothing_is_connected_but_keeps_the_rest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert _voice_tool_names(monkeypatch, set()) == []
+    """A tool that needs no connector is not a connector tool.
+
+    This used to assert an empty list, because the declaration loop kept only names
+    starting with github_ or instagram_ - which also threw away search_web, calculator and
+    find_tools. Voice then could not search the web and answered "latest news" from
+    training memory. The rule is: hide a tool whose connector is missing, keep the rest.
+    """
+    names = _voice_tool_names(monkeypatch, set())
+
+    assert not any(name.startswith(("github_", "instagram_")) for name in names)
+    assert "search_web" in names
 
 
 def test_vibe_keeps_the_full_catalogue_without_a_signed_in_user(

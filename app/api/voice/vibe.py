@@ -20,7 +20,11 @@ from app.ai.execution.tool_loop import (
     email_read_tool_declarations,
     model_tool_declarations,
 )
-from app.ai.execution.tool_registry import function_declarations, get_tool_spec
+from app.ai.execution.tool_registry import (
+    SEARCH_WEB_DECLARATION,
+    function_declarations,
+    get_tool_spec,
+)
 from app.capabilities.connectors.store import get_integration_token_metadata
 from app.ai.execution.tool_failure import take_tool_failure
 from app.plugins.github.chat_tools import _format_github_result
@@ -187,10 +191,14 @@ def _voice_tool_declarations(user_id: str = "") -> list[dict[str, object]]:
         declarations.extend(email_read_tool_declarations())
     # Voice filters to the read-only tools and has no discovery step, so it takes
     # the whole catalogue rather than the always-on set.
+    #
+    # This used to keep only names starting with "github_" or "instagram_", which threw
+    # away search_web, calculator, find_tools and every other non-connector tool - so Vibe
+    # could not search the web, and answered "latest news" from training memory. The
+    # read-only filter below is the rule that matters; the connector check keeps a tool the
+    # user cannot use out of the list, which is the only other thing this loop should do.
     for declaration in model_tool_declarations(user_id, full=True):
         name = str(declaration.get("name") or "")
-        if not name.startswith(_VOICE_CONNECTOR_PREFIXES):
-            continue
         if name not in read_only_names:
             continue
         # Chat no longer hides a tool whose connector is missing - the executor says
@@ -202,6 +210,15 @@ def _voice_tool_declarations(user_id: str = "") -> list[dict[str, object]]:
         if connector_id and user_id.strip() and not _connector_is_connected(user_id, connector_id):
             continue
         declarations.append(dict(declaration))
+
+    # search_web is not a registry ToolSpec - it returns evidence rather than a resource -
+    # so the read-only filter above cannot see it. Voice needs it all the same: without it
+    # "latest news" is answered from training memory, which is the one thing a model must
+    # not do with a question about today. dispatch_tool already routes it to the research
+    # provider, so declaring it is the whole change.
+    if not any(str(item.get("name") or "") == SEARCH_WEB_DECLARATION["name"] for item in declarations):
+        declarations.append(dict(SEARCH_WEB_DECLARATION))
+
     return declarations
 
 
