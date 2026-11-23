@@ -260,11 +260,16 @@ def _voice_tool_declarations(user_id: str = "") -> list[dict[str, object]]:
     return declarations
 
 
-# A spoken conversation has a shorter patience than a typed one. The research chain can
-# take eight seconds per provider; a live session that waits that long has already lost the
-# thread, and the user hears it as the voice stalling. Six seconds is long enough for a real
-# answer and short enough that the model can say what it has and carry on.
-_VOICE_SEARCH_TIMEOUT_SECONDS = 6.0
+# A spoken conversation has a shorter patience than a typed one. The research chain can take
+# eight seconds per provider and a mailbox read can wait on a remote API; a live session that
+# waits that long has already lost the thread, and the user hears it as the voice stalling.
+# Six seconds is long enough for a real answer and short enough that the model can say what
+# it has and carry on.
+#
+# It applies to every voice tool, not just the search: "email could not be checked" followed
+# by silence is the same failure as a stalled lookup, and the fix is the same - come back
+# inside six seconds with something true to say.
+_VOICE_TOOL_TIMEOUT_SECONDS = 6.0
 
 
 async def _execute_voice_tool(user_id: str, name: str, args: object) -> dict[str, object]:
@@ -274,20 +279,31 @@ async def _execute_voice_tool(user_id: str, name: str, args: object) -> dict[str
     # Read-only plugin tools are dispatched through the shared chat tool loop.
     call = dispatch_tool(user_id, "", name, args if isinstance(args, dict) else {})
 
-    if name == "search_web":
-        try:
-            result = await asyncio.wait_for(call, timeout=_VOICE_SEARCH_TIMEOUT_SECONDS)
-        except asyncio.TimeoutError:
-            logger.warning("Vibe search timed out after %.0fs", _VOICE_SEARCH_TIMEOUT_SECONDS)
-            return {
-                "ok": False,
-                "error": (
-                    "The lookup did not finish in time. Say what you already know briefly, "
-                    "and offer to check again - do not invent a result."
-                ),
-            }
-    else:
-        result = await call
+    try:
+        result = await asyncio.wait_for(call, timeout=_VOICE_TOOL_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Vibe tool %s timed out after %.0fs", name, _VOICE_TOOL_TIMEOUT_SECONDS
+        )
+        return {
+            "ok": False,
+            # Addressed to the model, not to the user: it must say something true, now,
+            # instead of leaving the session silent.
+            "error": (
+                "This did not finish in time. Tell the user in one short sentence that you "
+                "could not check it just now, say what you already know if anything, and "
+                "offer to try again. Never invent a result."
+            ),
+        }
+    except Exception:
+        logger.exception("Vibe tool %s failed", name)
+        return {
+            "ok": False,
+            "error": (
+                "This failed on our side. Tell the user in one short sentence that it could "
+                "not be done just now and offer to try again. Never invent a result."
+            ),
+        }
 
     return _voice_tool_result(name, result)
 
