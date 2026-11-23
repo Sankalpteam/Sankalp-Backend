@@ -156,6 +156,15 @@ def _header_value(message: dict[str, Any], header_name: str) -> str:
 
 _VOICE_CONNECTOR_PREFIXES = ("github_", "instagram_")
 
+# The only non-connector tool a live session is given, and the whole reason this list
+# exists: without search_web a question about today is answered from training memory.
+#
+# One name, not four. A live session carries its declarations in the setup message and the
+# Live API validates every schema there; adding the whole catalogue broke the setup and the
+# session dropped with "could not reach the voice service". The delta from the working set
+# is one tool, which is the smallest change that fixes the news question.
+_VOICE_TOOL_NAMES = frozenset({"search_web"})
+
 
 def _connector_is_connected(user_id: str, connector_id: str) -> bool:
     """Whether the signed-in user has connected a connector.
@@ -200,6 +209,12 @@ def _voice_tool_declarations(user_id: str = "") -> list[dict[str, object]]:
     for declaration in model_tool_declarations(user_id, full=True):
         name = str(declaration.get("name") or "")
         if name not in read_only_names:
+            continue
+        # A live session carries its declarations in the setup message, and a large
+        # catalogue makes the session stutter and drop. Voice keeps the connector reads and
+        # the three small always-on tools; everything else is reached by asking in chat,
+        # where discovery can add a tool mid-turn.
+        if name not in _VOICE_TOOL_NAMES and not name.startswith(_VOICE_CONNECTOR_PREFIXES):
             continue
         # Chat no longer hides a tool whose connector is missing - the executor says
         # "connect it in Plugins" instead. Voice keeps the filter on purpose: a live
