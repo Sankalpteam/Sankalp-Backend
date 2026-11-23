@@ -34,7 +34,6 @@ from app.channels.instagram.api.instagram_publishing import router as instagram_
 from app.channels.instagram.api.instagram_webhooks import router as instagram_webhooks_router
 from app.channels.instagram.api.instagram_automation import router as instagram_automation_router
 from app.api.content.memory import router as memory_router
-from app.api.keys.keys import router as keys_router
 from app.api.ops.observability import router as observability_router
 from app.api.chat.notifications import initialize as initialize_notification_store
 from app.ai.execution.limits import initialize as initialize_usage_limits
@@ -364,7 +363,6 @@ app.include_router(page_router)
 app.include_router(platform_router, prefix="/api")
 app.include_router(observability_router, prefix="/api")
 app.include_router(memory_router, prefix="/api")
-app.include_router(keys_router, prefix="/api")
 app.include_router(notifications_router, prefix="/api")
 app.include_router(capabilities_router, prefix="/api")
 app.include_router(agent_async_router, prefix="/api")
