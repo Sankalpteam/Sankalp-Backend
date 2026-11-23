@@ -212,8 +212,8 @@ def _voice_tool_declarations(user_id: str = "") -> list[dict[str, object]]:
             continue
         # A live session carries its declarations in the setup message, and a large
         # catalogue makes the session stutter and drop. Voice keeps the connector reads and
-        # the three small always-on tools; everything else is reached by asking in chat,
-        # where discovery can add a tool mid-turn.
+        # search_web; everything else is reached by asking in chat, where discovery can add
+        # a tool mid-turn.
         if name not in _VOICE_TOOL_NAMES and not name.startswith(_VOICE_CONNECTOR_PREFIXES):
             continue
         # Chat no longer hides a tool whose connector is missing - the executor says
@@ -237,11 +237,35 @@ def _voice_tool_declarations(user_id: str = "") -> list[dict[str, object]]:
     return declarations
 
 
+# A spoken conversation has a shorter patience than a typed one. The research chain can
+# take eight seconds per provider; a live session that waits that long has already lost the
+# thread, and the user hears it as the voice stalling. Six seconds is long enough for a real
+# answer and short enough that the model can say what it has and carry on.
+_VOICE_SEARCH_TIMEOUT_SECONDS = 6.0
+
+
 async def _execute_voice_tool(user_id: str, name: str, args: object) -> dict[str, object]:
     if not user_id.strip() or not name.strip():
         return {"ok": False, "error": "This voice action needs a signed-in Sankalp user."}
+
     # Read-only plugin tools are dispatched through the shared chat tool loop.
-    result = await dispatch_tool(user_id, "", name, args if isinstance(args, dict) else {})
+    call = dispatch_tool(user_id, "", name, args if isinstance(args, dict) else {})
+
+    if name == "search_web":
+        try:
+            result = await asyncio.wait_for(call, timeout=_VOICE_SEARCH_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            logger.warning("Vibe search timed out after %.0fs", _VOICE_SEARCH_TIMEOUT_SECONDS)
+            return {
+                "ok": False,
+                "error": (
+                    "The lookup did not finish in time. Say what you already know briefly, "
+                    "and offer to check again - do not invent a result."
+                ),
+            }
+    else:
+        result = await call
+
     return _voice_tool_result(name, result)
 
 
