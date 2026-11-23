@@ -508,12 +508,18 @@ def _voice_tool_names(monkeypatch: pytest.MonkeyPatch, connected: set[str], user
 
 
 def test_vibe_offers_only_the_connected_connectors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Voice offers email, and not the connectors whose answers are long.
+
+    A repository read or a pull-request diff is a screen activity: the answer is long and it
+    is read aloud. Voice keeps the short, spoken ones - "any new mail?" - and search_web.
+    Every connector is still in chat, where the answer can be read.
+    """
     names = _voice_tool_names(monkeypatch, {"github", "zoho_mail"})
 
-    assert "github_list_repositories" in names
     assert "search_emails" in names
     assert "search_gmail_messages" not in names
-    for prefix in ("google_", "youtube_", "instagram_", "facebook_", "canva_"):
+    assert "search_web" in names
+    for prefix in ("github_", "google_", "youtube_", "instagram_", "facebook_", "canva_"):
         assert not [name for name in names if name.startswith(prefix)]
 
 
@@ -533,14 +539,19 @@ def test_vibe_hides_connector_tools_when_nothing_is_connected_but_keeps_the_rest
     assert "search_web" in names
 
 
-def test_vibe_keeps_the_full_catalogue_without_a_signed_in_user(
+def test_vibe_keeps_the_small_set_without_a_signed_in_user(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """With no signed-in user the connector is unknown, so email is kept and nothing else is.
+
+    What must not come back is the long-answer connectors: the setup message is read and
+    every schema validated on connect, and a large catalogue is what made the first reply
+    stutter.
+    """
     names = _voice_tool_names(monkeypatch, set(), user="")
 
-    assert "github_list_repositories" in names
-    assert "github_list_repositories" in names
-    assert "instagram_list_media" in names
+    assert "search_web" in names
+    assert not [name for name in names if name.startswith(("github_", "instagram_"))]
 
 
 def test_vibe_live_setup_uses_the_signed_in_users_tools(
@@ -564,6 +575,11 @@ def test_vibe_live_setup_uses_the_signed_in_users_tools(
 
     declarations = upstream.sent[0]["setup"]["tools"][0]["functionDeclarations"]
     names = [str(item.get("name")) for item in declarations]
-    assert "github_list_repositories" in names
+
+    # The setup message carries the tools, and its size is what made the first reply
+    # stutter. Voice is email and search; a connected GitHub account does not add twelve
+    # repository readers to a spoken session.
+    assert "search_web" in names
+    assert "github_list_repositories" not in names
     assert "google_calendar_list_events" not in names
     assert "canva_list_designs" not in names

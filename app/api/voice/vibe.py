@@ -154,7 +154,12 @@ def _header_value(message: dict[str, Any], header_name: str) -> str:
     return ""
 
 
-_VOICE_CONNECTOR_PREFIXES = ("github_", "instagram_")
+# Which connector tools a spoken session is given. Empty on purpose: reading a repository
+# file or a pull request diff is a screen activity - it needs a long answer, and a voice
+# turn that starts reading a diff aloud is the wrong shape for the conversation. Chat has
+# every one of them. Voice keeps email, which is short and spoken ("any new mail?"), and
+# search_web, which answers the one thing a model must never guess.
+_VOICE_CONNECTOR_PREFIXES: tuple[str, ...] = ()
 
 # The only non-connector tool a live session is given, and the whole reason this list
 # exists: without search_web a question about today is answered from training memory.
@@ -179,6 +184,24 @@ def _connector_is_connected(user_id: str, connector_id: str) -> bool:
         return get_integration_token_metadata(normalized, connector_id) is not None
     except Exception:
         return False
+
+
+# A live session sends its declarations once, in the setup message, and the first reply
+# stutters while that message is read and every schema validated. The long descriptions the
+# chat path uses are there to stop a model choosing the wrong tool from forty options; voice
+# offers twenty, and the model can see the names. Keeping the first sentence is enough.
+_VOICE_DESCRIPTION_CHARS = 110
+
+
+def _short(declaration: dict[str, Any]) -> dict[str, object]:
+    """The declaration with a one-line description, for the live setup message."""
+    trimmed = dict(declaration)
+    description = " ".join(str(trimmed.get("description") or "").split())
+    if len(description) > _VOICE_DESCRIPTION_CHARS:
+        cut = description[: _VOICE_DESCRIPTION_CHARS].rsplit(" ", 1)[0]
+        description = f"{cut}."
+    trimmed["description"] = description
+    return trimmed
 
 
 def _voice_tool_declarations(user_id: str = "") -> list[dict[str, object]]:
@@ -224,7 +247,7 @@ def _voice_tool_declarations(user_id: str = "") -> list[dict[str, object]]:
         connector_id = getattr(spec, "connector_id", None) if spec is not None else None
         if connector_id and user_id.strip() and not _connector_is_connected(user_id, connector_id):
             continue
-        declarations.append(dict(declaration))
+        declarations.append(_short(declaration))
 
     # search_web is not a registry ToolSpec - it returns evidence rather than a resource -
     # so the read-only filter above cannot see it. Voice needs it all the same: without it
@@ -232,7 +255,7 @@ def _voice_tool_declarations(user_id: str = "") -> list[dict[str, object]]:
     # not do with a question about today. dispatch_tool already routes it to the research
     # provider, so declaring it is the whole change.
     if not any(str(item.get("name") or "") == SEARCH_WEB_DECLARATION["name"] for item in declarations):
-        declarations.append(dict(SEARCH_WEB_DECLARATION))
+        declarations.append(_short(SEARCH_WEB_DECLARATION))
 
     return declarations
 
