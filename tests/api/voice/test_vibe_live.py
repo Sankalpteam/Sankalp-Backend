@@ -18,8 +18,14 @@ def test_gemini_live_setup_uses_audio_and_transcription() -> None:
     assert ".v1alpha.GenerativeService.BidiGenerateContent" in vibe_api._GEMINI_LIVE_ENDPOINT
     assert setup["generationConfig"]["responseModalities"] == ["AUDIO"]
     # A live voice session must not go quiet while the model reasons, so the default is
-    # low rather than medium. See the note on _DEFAULT_THINKING_LEVEL.
-    assert setup["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "LOW"}
+    # low rather than medium. See the note on _DEFAULT_THINKING_LEVEL. A model whose name
+    # does not say it thinks gets no thinkingConfig at all - the Live API rejects the field
+    # and the session never opens, which is why swapping the model must not need a code
+    # change.
+    assert "thinkingConfig" not in setup["generationConfig"]
+
+    thinking = vibe_api._setup_message("models/gemini-3.8-live-extended-thinking", "Aoede")
+    assert thinking["setup"]["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "LOW"}
     assert "functionDeclarations" in setup["tools"][0]
     assert setup["generationConfig"]["speechConfig"]["voiceConfig"]["prebuiltVoiceConfig"]["voiceName"] == "Aoede"
     assert setup["inputAudioTranscription"] == {}

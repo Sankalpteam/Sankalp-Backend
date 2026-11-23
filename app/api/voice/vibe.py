@@ -111,6 +111,27 @@ def _system_instruction(extra_instruction: str = "") -> str:
     return f"{text} {extra}"
 
 
+def _generation_config(model: str, voice: str, thinking_level: str) -> dict[str, object]:
+    """The generationConfig for this live model.
+
+    ``thinkingConfig`` is only sent to a model whose name says it thinks. The Live API
+    rejects the field on a model that has no thinking level, and a rejected setup is a
+    session that never opens - which reads to the user as "Vibe could not reach the voice
+    service". Swapping GEMINI_LIVE_MODEL for a plain live model must not need a code change.
+    """
+    config: dict[str, object] = {
+        "responseModalities": ["AUDIO"],
+        "speechConfig": {
+            "voiceConfig": {
+                "prebuiltVoiceConfig": {"voiceName": voice},
+            },
+        },
+    }
+    if "thinking" in model.casefold():
+        config["thinkingConfig"] = {"thinkingLevel": thinking_level.upper()}
+    return config
+
+
 def _setup_message(
     model: str,
     voice: str,
@@ -121,15 +142,7 @@ def _setup_message(
     return {
         "setup": {
             "model": model,
-            "generationConfig": {
-                "responseModalities": ["AUDIO"],
-                "speechConfig": {
-                    "voiceConfig": {
-                        "prebuiltVoiceConfig": {"voiceName": voice},
-                    },
-                },
-                "thinkingConfig": {"thinkingLevel": thinking_level.upper()},
-            },
+            "generationConfig": _generation_config(model, voice, thinking_level),
             "systemInstruction": {
                 "parts": [{"text": _system_instruction(extra_instruction)}],
             },
