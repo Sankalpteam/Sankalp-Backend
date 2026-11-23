@@ -21,6 +21,7 @@ from app.ai.memory.file_context import read_text_file
 from app.ai.memory.memory import extract_memory_candidates
 from app.ai.gateway.service import stream_generate
 from app.plugins.github.chat_tools import handle_github_chat_with_tools
+from app.web_research.fast_path import web_research_answer
 from app.web_research.grounding import split_grounded_sources
 from app.api.security.errors import REQUEST_FAILED_MESSAGE, provider_failure
 
@@ -118,6 +119,17 @@ async def stream_chat(request: Request, body: StreamChatRequest) -> StreamingRes
                 history=history,
                 conversation_id=conversation_id,
             )
+
+            # A research request is answered in THIS turn, before the model speaks -
+            # the same order /api/chat uses. Without this the streaming endpoint asked the
+            # model to answer "latest news" from its training memory, the answer carried no
+            # Sources block, and the freshness gate below replaced the whole reply with
+            # "could not complete". The blocking endpoint never had that problem because it
+            # researches first; this is the streaming endpoint being a lesser door.
+            if tool_reply is None:
+                tool_reply = await web_research_answer(
+                    body.message, history=history, user_id=user_id,
+                )
 
             if tool_reply is None:
                 tool_reply = await run_tool_loop(
