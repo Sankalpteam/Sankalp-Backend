@@ -177,23 +177,27 @@ def test_vibe_websocket_forwards_audio_and_translates_audio_response(
     }
 
 
-def test_vibe_websocket_rejects_legacy_live_model_for_extended_thinking(
+def test_vibe_accepts_any_live_model_and_rejects_a_name_that_is_not_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("GEMINI_API_KEY", "test-api-key")
-    monkeypatch.setenv("GEMINI_LIVE_MODEL", "gemini-3.8-live")
-    monkeypatch.setattr(vibe_api, "extract_principal", lambda authorization: "test-user")
+    """The model is a setting, and a setting that only accepts one value is not one.
 
-    with TestClient(app) as client:
-        with client.websocket_connect(
-            "/api/vibe/session",
-            headers={"Authorization": "Bearer test-firebase-token"},
-        ) as websocket:
-            event = websocket.receive_json()
-            assert event == {
-                "type": "error",
-                "detail": "Sankalp Vibe requires GEMINI_LIVE_MODEL=gemini-3.8-live-extended-thinking",
-            }
+    This used to reject anything but gemini-3.8-live-extended-thinking. Switching to
+    gemini-3.8-live - a live model the API lists - then closed the session on connect with
+    "could not reach the voice service" and logged nothing, because the raise happened
+    before the socket was accepted.
+    """
+    monkeypatch.setenv("GEMINI_API_KEY", "test-api-key")
+
+    monkeypatch.setenv("GEMINI_LIVE_MODEL", "gemini-3.8-live")
+    assert vibe_api._live_config()[1] == "models/gemini-3.8-live"
+
+    monkeypatch.setenv("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-preview")
+    assert vibe_api._live_config()[1] == "models/gemini-3.1-flash-live-preview"
+
+    monkeypatch.setenv("GEMINI_LIVE_MODEL", "gemini-3.5-flash-lite")
+    with pytest.raises(RuntimeError, match="must name a live model"):
+        vibe_api._live_config()
 
 
 def test_vibe_does_not_forward_gemini_parts_marked_as_internal_thought() -> None:

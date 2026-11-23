@@ -74,9 +74,14 @@ def _live_config() -> tuple[str, str, str, str]:
     model = os.getenv("GEMINI_LIVE_MODEL", _DEFAULT_LIVE_MODEL).strip() or _DEFAULT_LIVE_MODEL
     if not model.startswith("models/"):
         model = f"models/{model}"
-    if model != "models/gemini-3.8-live-extended-thinking":
+    # Any live model is allowed; the name only has to be one. This used to pin the
+    # extended-thinking model by name and raise otherwise, which made the setting look
+    # broken: the session closed on connect with "could not reach the voice service" and
+    # nothing was logged, because the raise happened before the socket was accepted. A
+    # pin belongs in the default, not in a guard - the operator chooses the model.
+    if "live" not in model.casefold():
         raise RuntimeError(
-            "Sankalp Vibe requires GEMINI_LIVE_MODEL=gemini-3.8-live-extended-thinking"
+            f"GEMINI_LIVE_MODEL must name a live model, not {model!r}"
         )
 
     voice = os.getenv("GEMINI_LIVE_VOICE", _DEFAULT_VOICE).strip() or _DEFAULT_VOICE
@@ -796,6 +801,10 @@ async def _vibe_live_session(websocket: WebSocket) -> None:
     try:
         api_key, model, voice, thinking_level = _live_config()
     except RuntimeError as exc:
+        # Logged, because this path closes the socket with a sentence the browser shows as
+        # "Connection error" and nothing else. Without the line the only evidence is a
+        # warning that never appears.
+        logger.warning("Vibe session could not start: %s", exc)
         if not accepted:
             await websocket.accept()
         await _send_error(websocket, str(exc))
