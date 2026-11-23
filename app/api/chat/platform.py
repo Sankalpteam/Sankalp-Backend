@@ -21,6 +21,15 @@ from app.ai.memory.file_context import read_text_file
 from app.ai.memory.memory import extract_memory_candidates
 from app.ai.gateway.service import stream_generate
 from app.plugins.github.chat_tools import handle_github_chat_with_tools
+from app.ai.execution.confirmation import classify_reply_async
+from app.ai.execution.conversation_digest import conversation_history_answer
+from app.ai.gateway.ai_rules import EMAIL_PENDING_ACTION
+from app.capabilities.connectors.store import (
+    get_pending_email_action,
+    get_pending_github_action,
+)
+from app.plugins.email.email_tools import handle_email_chat
+from app.plugins.festivals.calendar import festival_answer
 from app.web_research.fast_path import web_research_answer
 from app.web_research.grounding import split_grounded_sources
 from app.api.security.errors import REQUEST_FAILED_MESSAGE, provider_failure
@@ -113,20 +122,65 @@ async def stream_chat(request: Request, body: StreamChatRequest) -> StreamingRes
     tool_reply: str | None = None
     if user_id:
         try:
-            tool_reply = await handle_github_chat_with_tools(
-                user_id,
-                body.message,
-                history=history,
-                conversation_id=conversation_id,
+            # The same executors, in the same order, as /api/chat. Each one exists there
+            # because a model cannot answer that question from four messages of history,
+            # and every one of them was missing here: the streaming endpoint was a lesser
+            # door into the same model. A question it could not answer became either an
+            # invented answer or "could not complete".
+            _pending_email = get_pending_email_action(user_id, conversation_id)
+            email_owns_this = bool(
+                _pending_email
+                and str(_pending_email.get("integration_id") or "").casefold() != "github"
             )
 
-            # A research request is answered in THIS turn, before the model speaks -
-            # the same order /api/chat uses. Without this the streaming endpoint asked the
-            # model to answer "latest news" from its training memory, the answer carried no
-            # Sources block, and the freshness gate below replaced the whole reply with
-            # "could not complete". The blocking endpoint never had that problem because it
-            # researches first; this is the streaming endpoint being a lesser door.
+            # A GitHub write waiting on this conversation is resolved first: a bare
+            # "ok create maadu" names no repository, so nothing else would reach it.
+            if get_pending_github_action(user_id, conversation_id) is not None:
+                tool_reply = await handle_github_chat_with_tools(
+                    user_id,
+                    body.message,
+                    history=history,
+                    conversation_id=conversation_id,
+                )
+
+            # A question about the thread itself is answered from a digest of what is
+            # stored. The model only sees four messages, so it could not answer this.
+            if tool_reply is None and not email_owns_this:
+                tool_reply = await conversation_history_answer(
+                    user_id, conversation_id, body.message
+                )
+
+            # A pending email confirmation must be resolved before anything else.
+            if tool_reply is None and _pending_email:
+                action_type = str(_pending_email.get("action_type") or "")
+                if (
+                    action_type == "await_recipient"
+                    or await classify_reply_async(body.message) in {"confirm", "cancel"}
+                ):
+                    tool_reply = await handle_email_chat(
+                        user_id, conversation_id, body.message
+                    )
+                else:
+                    tool_reply = EMAIL_PENDING_ACTION
+
             if tool_reply is None:
+                tool_reply = await handle_github_chat_with_tools(
+                    user_id,
+                    body.message,
+                    history=history,
+                    conversation_id=conversation_id,
+                )
+
+            # A festival date is a calendar lookup against a state gazette, not something
+            # to compute: a model asked for one produces a confident date that is wrong.
+            if tool_reply is None and not email_owns_this:
+                tool_reply = festival_answer(body.message)
+
+            # A research request is answered in THIS turn, before the model speaks. Without
+            # this the model answered "latest news" from its training memory, the answer
+            # carried no Sources block, and the freshness gate below replaced the whole
+            # reply with the failure message.
+            if tool_reply is None and not email_owns_this:
                 tool_reply = await web_research_answer(
                     body.message, history=history, user_id=user_id,
                 )
