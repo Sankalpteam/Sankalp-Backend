@@ -127,14 +127,43 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 """
 
 
-def _page(title: str, inner: str) -> str:
+def _page(title: str, inner: str, summary: str = "", canonical: str = "") -> str:
+    """The shell every shared page is drawn in.
+
+    A link that only looks right in a browser is half a link. Two other readers matter here:
+
+    A messaging app fetches the page to build the card that shows under the link - its title,
+    a line of the conversation, the site name. Without Open Graph tags that card is a bare URL.
+
+    An assistant fetches the page when someone pastes the link and asks what is in it. It reads
+    the HTML and the description; it has no way to guess what the page is for. The description
+    and the Open Graph block are how the page says so.
+
+    noindex stays: a shared conversation should not turn up in a search result. It does not stop
+    a direct fetch, which is what both of those readers do.
+    """
+    safe_title = html.escape(title)
+    safe_summary = html.escape(summary or "A conversation shared from Sankalp.")
+    safe_url = html.escape(canonical) if canonical else ""
+
+    og_url = f'<meta property="og:url" content="{safe_url}"/>' if safe_url else ""
+
     return f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <meta name="robots" content="noindex, nofollow"/>
-<title>{html.escape(title)}</title>
+<title>{safe_title}</title>
+<meta name="description" content="{safe_summary}"/>
+{og_url}
+<meta property="og:type" content="article"/>
+<meta property="og:site_name" content="Sankalp"/>
+<meta property="og:title" content="{safe_title}"/>
+<meta property="og:description" content="{safe_summary}"/>
+<meta name="twitter:card" content="summary"/>
+<meta name="twitter:title" content="{safe_title}"/>
+<meta name="twitter:description" content="{safe_summary}"/>
 <style>{_STYLE}</style>
 </head>
 <body>
@@ -148,6 +177,26 @@ def _page(title: str, inner: str) -> str:
 <p class="footer">This is a read-only copy of a conversation.</p>
 </body>
 </html>"""
+
+
+def _summary(question: str, answer: str, limit: int = 200) -> str:
+    """One line describing the conversation, for a preview card and for a reader.
+
+    The question first, because it says what the conversation is about; the answer follows if
+    there is room. Whitespace is collapsed - a card that gets the first line of a code block
+    reads as nothing at all.
+    """
+    def clean(value: str) -> str:
+        return " ".join((value or "").split())
+
+    parts = [part for part in (clean(question), clean(answer)) if part]
+
+    if not parts:
+        return "A conversation shared from Sankalp."
+
+    joined = " — ".join(parts)
+
+    return joined if len(joined) <= limit else joined[: limit - 1].rstrip() + "…"
 
 
 def render_share_page(title: str, messages: list[tuple[str, str]]) -> str:
@@ -196,7 +245,13 @@ def render_share_page(title: str, messages: list[tuple[str, str]]) -> str:
         + "".join(rows)
     )
 
-    return _page(f"{heading} — Sankalp", inner)
+    # What a preview card shows, and what an assistant reads first: the opening question and
+    # the start of the answer, cut to something a card can hold.
+    first_question = next((content for role, content in messages if role == "user"), "")
+    first_answer = next((content for role, content in messages if role != "user"), "")
+    summary = _summary(first_question, first_answer)
+
+    return _page(f"{heading} — Sankalp", inner, summary=summary)
 
 
 def render_not_found() -> str:
